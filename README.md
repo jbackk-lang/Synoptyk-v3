@@ -10,9 +10,7 @@ obszarem wokół wybranego miasta, z górkami/dolinami/uskokami/wirami,
 którą analizujemy metodami z geometrii różniczkowej/analizy widmowej,
 zamiast czystej statystyki szeregów czasowych.
 
-Synoptyk‑v3 jest pierwszym narzędziem pogodowym w Polsce, które wykorzystuje
-metody geometrii różniczkowej i analizy widmowej do interpretacji
-zjawisk synoptycznych.
+Synoptyk‑v3 jest pierwszym narzędziem pogodowym w Polsce, które wykorzystuje metody geometrii różniczkowej i analizy widmowej do interpretacji zjawisk synoptycznych.
 
 ## Sześć kroków pipeline'u
 
@@ -51,6 +49,39 @@ siatka punktów pobierana tutaj jest więc faktycznie prognozą modelu
 numerycznego (nie interpolacją stacji), tylko pobieraną punkt-po-punkcie.
 Ten sam dostawca co SYNOPTYK-ARCTIC i synoptyk-v2.0 (spójność
 ekosystemowa).
+
+## Wydajność — porównanie z synoptyk-v2.0
+
+Zmierzone bezpośrednio (bez sieci, czysto obliczeniowo, na syntetycznych
+danych o typowym rozmiarze dla każdej appki — patrz metodologia niżej):
+
+| | synoptyk-v2.0 (`TIMDRAnalyzer.analyze()`) | Synoptyk-v3 (`analyze_records()`) |
+|---|---|---|
+| typowy przebieg | `--region poland --days 7`: 6 stacji × 168 wierszy godzinowych | jedno kliknięcie "Analizuj membranę": 25 pkt wejściowych → siatka 41×41 |
+| czas / jedna lokalizacja | **~250 ms/stację** (1.5s / 6 stacji) | **~24 ms** |
+| główny koszt | pętla `for idx, row in df.iterrows()` (`analyzer/timdr_analyzer.py`) — znane wąskie gardło pandas, mimo wcześniejszej optymalizacji (`.diff()` wyniesione poza pętlę, patrz komentarz w kodzie) | w pełni wektoryzowane: `scipy.interpolate.griddata`, `numpy.fft.fft2`, `numpy.gradient` |
+
+**~10× szybciej dla porównywalnej jednostki pracy** ("pełna analiza
+jednej lokalizacji"), mimo że Synoptyk-v3 liczy obiektywnie więcej
+(interpolacja 2D + FFT + gradient + wirowość + defekty + rezonans, nie
+tylko sygnały 1D). Powód jest architektoniczny, nie przypadkowy: cały
+pipeline membrany jest wektoryzowany (numpy/scipy, pętle w C), podczas
+gdy `TIMDRAnalyzer` w v2.0 liczy wiersz-po-wierszu w czystym Pythonie.
+
+**Zastrzeżenia (żeby nie przeceniać wyniku):** to NIE jest porównanie
+jabłko-do-jabłka — różne kształty danych (siatka 2D vs szereg czasowy
+1D) i różne algorytmy, nie dwie implementacje tego samego zadania. Pomiar
+NIE obejmuje pobierania danych z sieci — to w praktyce dominuje w obu
+appkach (obie pytają Open-Meteo przez HTTP, rzędu setek ms na
+zapytanie), więc różnica dotyczy WYŁĄCZNIE lokalnej części obliczeniowej,
+którą kontrolujemy w kodzie, nie całkowitego czasu odpowiedzi
+użytkownikowi. Metodologia (odtwarzalna): `analyzer.timdr_analyzer.TIMDRAnalyzer`
+uruchomione na 6 syntetycznych DataFrame'ach (168 wierszy, `np.random.default_rng`)
+sekwencyjnie; `membrane.analyze.analyze_records` uruchomione na 25
+syntetycznych rekordach z `membrane.grid_source.build_grid_points(n=5)`,
+`grid_n_membrane=41`. Zmierzone `time.perf_counter()`, jednorazowo,
+2026-09-06 — nie uśrednione po wielu przebiegach, więc traktuj jako rząd
+wielkości, nie precyzyjny benchmark.
 
 ## Uczciwe ograniczenia
 
