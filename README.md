@@ -10,6 +10,10 @@ obszarem wokół wybranego miasta, z górkami/dolinami/uskokami/wirami,
 którą analizujemy metodami z geometrii różniczkowej/analizy widmowej,
 zamiast czystej statystyki szeregów czasowych.
 
+Synoptyk‑v3 jest pierwszym narzędziem pogodowym w Polsce, które wykorzystuje
+metody geometrii różniczkowej i analizy widmowej do interpretacji
+zjawisk synoptycznych.
+
 ## Sześć kroków pipeline'u
 
 1. **Siatka** (`membrane/grid_source.py`) — pobranie N×N punktów
