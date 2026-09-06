@@ -1,4 +1,4 @@
-# synoptyk-3 — membrana pogodowa
+# Synoptyk-v3 — membrana pogodowa
 
 Trzecie podejście do "synoptyka" w tym ekosystemie (po SYNOPTYK-ARCTIC i
 synoptyk-v2.0), zbudowane wokół innej hipotezy geometrycznej niż tamte

@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<title>synoptyk-3 — Membrana pogodowa</title>
+<title>Synoptyk-v3 — Membrana pogodowa</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   /* Ten sam ciemny motyw/paleta co SYNOPTYK-ARCTIC (webapp/static/index.html)
@@ -92,7 +92,7 @@
 <body>
 
 <div class="header-row">
-  <h1 style="margin:0;">🌦️ synoptyk-3 — membrana pogodowa</h1>
+  <h1 style="margin:0;">🌦️ Synoptyk-v3 — membrana pogodowa</h1>
   <select id="city-select" onchange="onCityChange()"><option>ładowanie miast…</option></select>
 </div>
 <div class="sub" id="city-sub">siatka → interpolacja → membrana → widmo → defekty → rezonans → przekroje 1D.</div>
@@ -168,7 +168,7 @@
 </div>
 
 <footer>
-  synoptyk-3 · appka lokalna (FastAPI) · endpointy: /api/cities, /api/meteogram, /api/collect, /api/analyze, /api/history ·
+  Synoptyk-v3 · appka lokalna (FastAPI) · endpointy: /api/cities, /api/meteogram, /api/collect, /api/analyze, /api/history ·
   Krok 1-5 (siatka→membrana→widmo→defekty→rezonans) to heurystyka NIEZWALIDOWANA na realnych danych - patrz README.md#ograniczenia.
 </footer>
 
@@ -215,7 +215,7 @@ async function loadSection(url, renderFn, label) {
     renderFn(data);
     delete _sectionErrors[label];
   } catch (e) {
-    console.error(`[synoptyk-3] Blad w sekcji "${label}":`, e);
+    console.error(`[Synoptyk-v3] Blad w sekcji "${label}":`, e);
     _sectionErrors[label] = e.message || String(e);
   }
   _showGlobalError();

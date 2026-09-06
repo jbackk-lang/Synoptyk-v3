@@ -1,12 +1,12 @@
 @echo off
-title synoptyk-3 -- Dashboard (appka lokalna)
+title Synoptyk-v3 -- Dashboard (appka lokalna)
 color 0B
 cls
 
 cd /d "%~dp0"
 
 echo ============================================================
-echo   synoptyk-3: membrana pogodowa (FastAPI)
+echo   Synoptyk-v3: membrana pogodowa (FastAPI)
 echo   Katalog roboczy: %cd%
 echo ============================================================
 echo.

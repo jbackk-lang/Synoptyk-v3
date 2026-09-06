@@ -1,5 +1,5 @@
 """
-webapp/app.py — lokalna appka (FastAPI) dla synoptyk-3.
+webapp/app.py — lokalna appka (FastAPI) dla Synoptyk-v3.
 
 Ten sam wybor architektoniczny co SYNOPTYK-ARCTIC (patrz tamten
 webapp/app.py): prawdziwa mala appka, nie statyczny HTML z wbudowanymi
@@ -53,7 +53,7 @@ from run_collect import DEFAULT_CSV_PATH, collect as _collect
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
 
-app = FastAPI(title="synoptyk-3 — membrana pogodowa")
+app = FastAPI(title="Synoptyk-v3 — membrana pogodowa")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
