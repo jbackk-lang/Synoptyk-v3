@@ -68,6 +68,38 @@ ekosystemowa).
   błąd sieci — sprawdzone smoke-testem przez `TestClient` w tym samym
   zablokowanym sandboxie (patrz historia commitów).
 
+- **Krzyżowa weryfikacja prognozy Open-Meteo względem niezależnego źródła
+  (2026-09-06, Kraków 50.083°N 19.917°E, 5 dni naprzód).** Ponieważ i
+  Synoptyk-v3, i (dla realnej ścieżki `/api/forecast`, nie dla
+  `run_synoptyk.py`/`data/fetcher.py`, który pobiera reanalizę
+  `archive-api.open-meteo.com`, NIE prognozę) synoptyk-v2.0 opierają się
+  wyłącznie na Open-Meteo, sprawdzono, czy liczby, które te appki
+  pokazują, są w ogóle wiarygodne — przez porównanie z niezależnym
+  dostawcą (meteoblue) dla tego samego miasta i tych samych dni:
+
+  | dzień | Open-Meteo maks/min °C | meteoblue maks/min °C | Open-Meteo wiatr km/h | meteoblue wiatr km/h | Open-Meteo opad | meteoblue opad |
+  |---|---|---|---|---|---|---|
+  | 06.09 | 19.4 / 13.0 | 19 / 11 | 20.9 | 14 | 0 mm | – |
+  | 07.09 | 22.0 / 8.7 | 22 / 9 | 9.4 | 4 | 0 mm | – |
+  | 08.09 | 29.9 / 13.8 | 29 / 14 | 13.7 | 7 | 0 mm | – |
+  | 09.09 | 31.5 / 18.5 | 32 / 16 | 10.5 | 7 | 0 mm | 0–2 mm |
+  | 10.09 | 21.8 / 13.3 | 18 / 13 | 18.4 | 8 | 1.2 mm | 5–10 mm |
+
+  Wnioski: temperatura maksymalna zgadza się bardzo dobrze przez pierwsze
+  4 dni (rozbieżność ≤1°C) — dane wejściowe są wiarygodne, nie są
+  artefaktem błędnego zapytania do API. **Prędkość wiatru w Open-Meteo
+  jest systematycznie ~1.5–2× wyższa niż u meteoblue na KAŻDY z 5 dni** —
+  to nie błąd w kodzie żadnej z appek (obie tylko przekazują dalej to, co
+  zwróci API), tylko realna różnica metodologiczna między dostawcami
+  (inny model źródłowy i/lub inna konwencja uśredniania) — traktuj
+  wartość wiatru z Synoptyk-v3 jako orientacyjną, nie precyzyjny pomiar.
+  Dzień 5 (10.09) pokazuje realną rozbieżność prognoz między dostawcami
+  (Open-Meteo cieplej i suszej: 21.8°C/1.2mm; meteoblue chłodniej i
+  mokrzej: 18°C/5-10mm) — normalna niepewność prognozy na dalszy termin,
+  nie błąd. Jednorazowy spot-check na jednym mieście/dacie, nie
+  systematyczna walidacja — nie ekstrapoluj tego na wszystkie miasta czy
+  wszystkie zakresy dat.
+
 - **Rezonans membrany (Krok 5) jest heurystyką, NIE zwalidowanym
   detektorem zjawisk.** Zbudowany na fizycznej intuicji ("silne zjawisko
   synoptyczne = kilka pól odkształca się naraz w tym samym miejscu"), ale
