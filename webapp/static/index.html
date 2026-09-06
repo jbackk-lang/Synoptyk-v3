@@ -55,15 +55,30 @@
   button.action-btn:disabled { opacity: 0.5; cursor: default; background: var(--accent-dim); color: var(--text); }
   footer { color: var(--muted); font-size: 11px; margin-top: 24px; border-top: 1px solid var(--panel-border); padding-top: 12px; }
 
-  /* Meteogram: wykres slupkowy opadu (Krok 6, "przekroje 1D") - ta sama
-     "ramka" (panel, border, viewBox SVG) co panel "Prognoza 7 dni" w
-     SYNOPTYK-ARCTIC. */
+  /* Meteogram: opad NANIESIONY NA wykres min/max temperatury (Krok 6,
+     "przekroje 1D") - dokladnie ten sam uklad co panel "Prognoza 7 dni"
+     w SYNOPTYK-ARCTIC (band+maxline+minline+punkty+etykiety), tylko z
+     dodanymi slupkami opadu w tle, na WLASNEJ (niezaleznej) skali
+     wysokosci zakotwiczonej u dolu wykresu - ten sam wzorzec co typowe
+     meteogramy (Windy/Meteoblue): dwie rozne wielkosci fizyczne, jeden
+     wspolny wykres, dwie niezalezne skale pionowe. */
   #meteogram-chart { width: 100%; height: auto; display: block; }
   .mg-gridline { stroke: var(--panel-border); stroke-width: 1; }
-  .mg-bar { fill: var(--precip); fill-opacity: 0.85; }
-  .mg-bar-lbl { font-family: var(--mono); font-size: 11px; fill: var(--precip); text-anchor: middle; }
+  .mg-bar { fill: var(--precip); fill-opacity: 0.55; }
+  .mg-bar-lbl { font-family: var(--mono); font-size: 10px; fill: var(--precip); text-anchor: middle; }
   .mg-daylbl { font-family: var(--mono); font-size: 11px; fill: var(--muted); text-anchor: middle; }
   .mg-axislbl { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+  .mg-band { fill: var(--accent); fill-opacity: 0.10; }
+  .mg-maxline { fill: none; stroke: #e0745a; stroke-width: 2; }
+  .mg-minline { fill: none; stroke: #4fa8d1; stroke-width: 2; }
+  .mg-pt { fill: var(--bg); stroke-width: 2; }
+  .mg-pt.max { stroke: #e0745a; }
+  .mg-pt.min { stroke: #4fa8d1; }
+  .mg-lbl { font-family: var(--mono); font-size: 11px; text-anchor: middle; }
+  .mg-lbl.max { fill: #e0745a; }
+  .mg-lbl.min { fill: #4fa8d1; }
+  .mg-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+  .mg-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   #meteogram-table td, #meteogram-table th { text-align: center; }
   #meteogram-table th:first-child, #meteogram-table td:first-child { text-align: left; white-space: nowrap; }
 
@@ -107,7 +122,12 @@
 <div class="panel" style="margin-bottom:20px;">
   <h2>Meteogram 7 dni <span id="meteogram-badge"></span></h2>
   <div id="meteogram-note" class="empty-note">ładowanie…</div>
-  <svg id="meteogram-chart" viewBox="0 0 640 200" role="img" aria-label="Wykres słupkowy prognozowanego opadu na kolejne dni"></svg>
+  <svg id="meteogram-chart" viewBox="0 0 640 220" role="img" aria-label="Wykres temperatury maksymalnej i minimalnej z naniesionymi słupkami opadu na kolejne dni"></svg>
+  <div class="mg-legend">
+    <span><span class="sw" style="background:#e0745a;"></span>temp. maks. °C</span>
+    <span><span class="sw" style="background:#4fa8d1;"></span>temp. min. °C</span>
+    <span><span class="sw" style="background:var(--precip); opacity:0.55;"></span>opad (mm, skala własna u dołu)</span>
+  </div>
   <table id="meteogram-table">
     <thead><tr id="meteogram-head"><th>parametr</th></tr></thead>
     <tbody id="meteogram-body"></tbody>
@@ -265,40 +285,72 @@ function renderMeteogram(data) {
   note.textContent = `${data.city.replace(/_/g, " ")} — prognoza na ${days.length} ${days.length === 1 ? "dzień" : "dni"} naprzód (Open-Meteo, na żywo).`;
 
   const precip = data.precip_mm.map(Number);
+  const maxVals = data.temp_max_c.map(Number);
+  const minVals = data.temp_min_c.map(Number);
   const maxPrecip = Math.max(1, ...precip);
-  const W = 640, H = 200, padL = 34, padR = 12, padT = 16, padB = 26;
+
+  // Uklad DOKLADNIE jak "Prognoza 7 dni" w SYNOPTYK-ARCTIC
+  // (renderForecastOutlook): band+maxline+minline na skali temperatury -
+  // opad NIE dostaje wlasnej osi Y na wykresie (bylby to trzeci element
+  // wizualny), tylko slupki zakotwiczone u DOLU wykresu na WLASNEJ,
+  // niezaleznej skali wysokosci (maxBarFrac ulamek plotH) - dokladnie ta
+  // proba uzytkownika "slupki opadu naniesione NA wykres min/max", nie
+  // osobny wykres obok.
+  const W = 640, H = 220, padL = 40, padR = 20, padT = 20, padB = 30;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const n = days.length;
-  const bandW = plotW / n;
-  const barW = bandW * 0.5;
+  const xOf = i => n === 1 ? padL + plotW / 2 : padL + i * (plotW / (n - 1));
+  const yMin = Math.min(...minVals) - 2;
+  const yMax = Math.max(...maxVals) + 2;
+  const yOf = t => padT + (yMax - t) / (yMax - yMin) * plotH;
+
+  const maxBarFrac = 0.4;   // slupek opadu przy maxPrecip zajmuje 40% wysokosci wykresu
+  const barBaseline = padT + plotH;  // dol wykresu (najzimniejszy koniec skali temp.)
+  const barW = n === 1 ? plotW * 0.3 : (plotW / n) * 0.5;
+
+  const maxPts = days.map((d, i) => `${xOf(i).toFixed(1)},${yOf(maxVals[i]).toFixed(1)}`);
+  const minPts = days.map((d, i) => `${xOf(i).toFixed(1)},${yOf(minVals[i]).toFixed(1)}`);
+  const bandPts = maxPts.concat([...minPts].reverse()).join(" ");
 
   const gridLines = [];
-  for (let g = 0; g <= maxPrecip; g += Math.max(1, Math.ceil(maxPrecip / 4))) gridLines.push(g);
+  for (let g = Math.ceil(yMin / 6) * 6; g <= yMax; g += 6) gridLines.push(g);
 
   let inner = "";
+  // 1) siatka + slupki opadu NAJPIERW (w tle), zeby linie/punkty temp.
+  //    byly rysowane NA WIERZCHU i pozostaly czytelne.
   gridLines.forEach(g => {
-    const y = padT + (1 - g / maxPrecip) * plotH;
+    const y = yOf(g);
     inner += `<line class="mg-gridline" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
-    inner += `<text class="mg-axislbl" x="4" y="${(y + 3).toFixed(1)}">${g}mm</text>`;
+    inner += `<text class="mg-axislbl" x="4" y="${(y + 4).toFixed(1)}">${g}°</text>`;
   });
-
   days.forEach((d, i) => {
-    const x0 = padL + i * bandW + (bandW - barW) / 2;
-    const h = (precip[i] / maxPrecip) * plotH;
-    const y0 = padT + plotH - h;
-    inner += `<rect class="mg-bar" x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"/>`;
+    const x = xOf(i);
+    const h = (precip[i] / maxPrecip) * (plotH * maxBarFrac);
+    const y0 = barBaseline - Math.max(0, h);
+    inner += `<rect class="mg-bar" x="${(x - barW / 2).toFixed(1)}" y="${y0.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"/>`;
     if (precip[i] > 0) {
-      inner += `<text class="mg-bar-lbl" x="${(x0 + barW / 2).toFixed(1)}" y="${(y0 - 4).toFixed(1)}">${precip[i].toFixed(1)}</text>`;
+      inner += `<text class="mg-bar-lbl" x="${x.toFixed(1)}" y="${(y0 - 3).toFixed(1)}">${precip[i].toFixed(1)}mm</text>`;
     }
-    inner += `<text class="mg-daylbl" x="${(x0 + barW / 2).toFixed(1)}" y="${H - 8}">${fmtDay(d)}</text>`;
+  });
+  // 2) band + linie max/min + punkty + etykiety (ten sam wzor co arctic).
+  inner += `<polygon class="mg-band" points="${bandPts}"/>`;
+  inner += `<polyline class="mg-maxline" points="${maxPts.join(" ")}"/>`;
+  inner += `<polyline class="mg-minline" points="${minPts.join(" ")}"/>`;
+  days.forEach((d, i) => {
+    const x = xOf(i);
+    const yMaxPt = yOf(maxVals[i]);
+    const yMinPt = yOf(minVals[i]);
+    inner += `<circle class="mg-pt max" cx="${x.toFixed(1)}" cy="${yMaxPt.toFixed(1)}" r="3.5"/>`;
+    inner += `<circle class="mg-pt min" cx="${x.toFixed(1)}" cy="${yMinPt.toFixed(1)}" r="3.5"/>`;
+    inner += `<text class="mg-lbl max" x="${x.toFixed(1)}" y="${(yMaxPt - 8).toFixed(1)}">${maxVals[i].toFixed(1)}</text>`;
+    inner += `<text class="mg-lbl min" x="${x.toFixed(1)}" y="${(yMinPt + 14).toFixed(1)}">${minVals[i].toFixed(1)}</text>`;
+    inner += `<text class="mg-daylbl" x="${x.toFixed(1)}" y="${H - 8}">${fmtDay(d)}</text>`;
   });
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.innerHTML = inner;
 
-  // Tabela: parametry jako wiersze, dni jako kolumny (opad nad tabela,
-  // cisnienie/wiatr+kierunek/temp pod - dokladnie ukladu z prosby
-  // uzytkownika: "pionowe pola z opadami nad tabela ... cisnienie pod,
-  // kierunek i wartosc wiatru, i dodatkowy parametr").
+  // Tabela: parametry jako wiersze, dni jako kolumny (opad/cisnienie/
+  // wiatr+kierunek/temp pod wykresem - patrz MG_PARAMS).
   const head = document.getElementById("meteogram-head");
   head.innerHTML = `<th>parametr</th>` + days.map(d => `<th>${fmtDay(d)}</th>`).join("");
   const body = document.getElementById("meteogram-body");
