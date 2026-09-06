@@ -129,7 +129,7 @@
     <span><span class="sw" style="background:var(--precip); opacity:0.55;"></span>opad (mm, skala własna u dołu)</span>
   </div>
   <table id="meteogram-table">
-    <thead><tr id="meteogram-head"><th>parametr</th></tr></thead>
+    <thead><tr><th>dzień</th><th>opad (mm)</th><th>ciśnienie (hPa)</th><th>wiatr (km/h)</th><th>kier.</th><th>t. maks (°C)</th><th>t. min (°C)</th></tr></thead>
     <tbody id="meteogram-body"></tbody>
   </table>
 </div>
@@ -262,14 +262,6 @@ function onCityChange() {
 
 // ---------- Meteogram (Krok 6: przekroje 1D) ----------
 
-const MG_PARAMS = [
-  { key: "precip_mm", label: "Opad (mm)", fmt: v => Number(v).toFixed(1) },
-  { key: "pressure_hpa", label: "Ciśnienie (hPa)", fmt: v => Number(v).toFixed(0) },
-  { key: "wind_row", label: "Wiatr (km/h, kier.)", fmt: null },
-  { key: "temp_max_c", label: "Temp. maks. (°C)", fmt: v => Number(v).toFixed(1) },
-  { key: "temp_min_c", label: "Temp. min. (°C)", fmt: v => Number(v).toFixed(1) },
-];
-
 function renderMeteogram(data) {
   const note = document.getElementById("meteogram-note");
   const svg = document.getElementById("meteogram-chart");
@@ -349,25 +341,24 @@ function renderMeteogram(data) {
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.innerHTML = inner;
 
-  // Tabela: parametry jako wiersze, dni jako kolumny (opad/cisnienie/
-  // wiatr+kierunek/temp pod wykresem - patrz MG_PARAMS).
-  const head = document.getElementById("meteogram-head");
-  head.innerHTML = `<th>parametr</th>` + days.map(d => `<th>${fmtDay(d)}</th>`).join("");
+  // Tabela danych pogodowych POD wykresem: JEDEN WIERSZ NA DZIEN (ten sam
+  // uklad co tabela "Prognoza 7 dni" w SYNOPTYK-ARCTIC), z kolumnami
+  // opad/cisnienie/wiatr+kierunek/temp maks/temp min - komplet parametrow
+  // z tego samego zrodla danych, co wykres powyzej.
   const body = document.getElementById("meteogram-body");
   body.innerHTML = "";
-  MG_PARAMS.forEach(p => {
+  days.forEach((d, i) => {
+    const arrow = windArrow(data.wind_dir_deg[i]);
     const tr = document.createElement("tr");
-    let cells;
-    if (p.key === "wind_row") {
-      cells = days.map((_, i) => {
-        const arrow = windArrow(data.wind_dir_deg[i]);
-        const speed = data.wind_speed_kmh[i];
-        return `<td><span class="wind-arrow" title="${data.wind_dir_deg[i]}°">${arrow}</span> ${Number(speed).toFixed(0)}</td>`;
-      }).join("");
-    } else {
-      cells = days.map((_, i) => `<td>${p.fmt(data[p.key][i])}</td>`).join("");
-    }
-    tr.innerHTML = `<td>${p.label}</td>${cells}`;
+    tr.innerHTML = `
+      <td>${fmtDay(d)}</td>
+      <td>${Number(precip[i]).toFixed(1)}</td>
+      <td>${Number(data.pressure_hpa[i]).toFixed(0)}</td>
+      <td>${Number(data.wind_speed_kmh[i]).toFixed(0)}</td>
+      <td class="wind-arrow" title="${data.wind_dir_deg[i]}°">${arrow}</td>
+      <td>${Number(maxVals[i]).toFixed(1)}</td>
+      <td>${Number(minVals[i]).toFixed(1)}</td>
+    `;
     body.appendChild(tr);
   });
 
