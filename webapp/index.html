@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<title>Synoptyk-v3 — Membrana pogodowa</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Ten sam ciemny motyw/paleta co SYNOPTYK-ARCTIC (webapp/static/index.html)
+     - swiadoma spojnosc wizualna calego ekosystemu Synoptyk, nie
+     przypadkowe podobienstwo. */
+  :root {
+    --bg: #0b0f14;
+    --panel: #111823;
+    --panel-border: #1f2b3a;
+    --text: #d8e2ec;
+    --muted: #7b8ca0;
+    --accent: #4fd1c5;
+    --accent-dim: #2b6f68;
+    --warn-bg: #2a1a0a;
+    --warn-border: #7a4a12;
+    --warn-text: #f0b060;
+    --ok: #4fd18a;
+    --precip: #4a90d9;
+    --mono: "Consolas", "Menlo", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); margin: 0; padding: 24px; line-height: 1.5; }
+  h1 { font-size: 20px; margin: 0 0 4px 0; }
+  h2 { font-size: 15px; margin: 0 0 12px 0; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px; padding: 16px; }
+  .stat { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px dashed var(--panel-border); }
+  .stat:last-child { border-bottom: none; }
+  .stat .v { color: var(--text); font-weight: bold; }
+  .stat .k { color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+  .warn-banner { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; }
+  .empty-note { color: var(--muted); font-size: 13px; padding: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--panel-border); }
+  th:first-child, td:first-child { text-align: left; color: var(--muted); }
+  th { color: var(--muted); font-weight: normal; }
+  .wind-arrow { color: var(--accent); font-weight: 700; }
+  #city-select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--accent-dim);
+    border-radius: 4px; padding: 5px 10px; font-family: var(--mono); font-size: 13px; cursor: pointer;
+  }
+  .header-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  button.action-btn {
+    background: var(--accent-dim); color: var(--text); border: 1px solid var(--accent);
+    border-radius: 4px; padding: 6px 14px; font-family: var(--mono); cursor: pointer; font-size: 12px;
+  }
+  button.action-btn:hover { background: var(--accent); color: #08110f; }
+  button.action-btn:disabled { opacity: 0.5; cursor: default; background: var(--accent-dim); color: var(--text); }
+  footer { color: var(--muted); font-size: 11px; margin-top: 24px; border-top: 1px solid var(--panel-border); padding-top: 12px; }
+
+  /* Meteogram: opad NANIESIONY NA wykres min/max temperatury (Krok 6,
+     "przekroje 1D") - dokladnie ten sam uklad co panel "Prognoza 7 dni"
+     w SYNOPTYK-ARCTIC (band+maxline+minline+punkty+etykiety), tylko z
+     dodanymi slupkami opadu w tle, na WLASNEJ (niezaleznej) skali
+     wysokosci zakotwiczonej u dolu wykresu - ten sam wzorzec co typowe
+     meteogramy (Windy/Meteoblue): dwie rozne wielkosci fizyczne, jeden
+     wspolny wykres, dwie niezalezne skale pionowe. */
+  #meteogram-chart { width: 100%; height: auto; display: block; }
+  .mg-gridline { stroke: var(--panel-border); stroke-width: 1; }
+  .mg-bar { fill: var(--precip); fill-opacity: 0.55; }
+  .mg-bar-lbl { font-family: var(--mono); font-size: 10px; fill: var(--precip); text-anchor: middle; }
+  .mg-daylbl { font-family: var(--mono); font-size: 11px; fill: var(--muted); text-anchor: middle; }
+  .mg-axislbl { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+  .mg-band { fill: var(--accent); fill-opacity: 0.10; }
+  .mg-maxline { fill: none; stroke: #e0745a; stroke-width: 2; }
+  .mg-minline { fill: none; stroke: #4fa8d1; stroke-width: 2; }
+  .mg-pt { fill: var(--bg); stroke-width: 2; }
+  .mg-pt.max { stroke: #e0745a; }
+  .mg-pt.min { stroke: #4fa8d1; }
+  .mg-lbl { font-family: var(--mono); font-size: 11px; text-anchor: middle; }
+  .mg-lbl.max { fill: #e0745a; }
+  .mg-lbl.min { fill: #4fa8d1; }
+  .mg-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; }
+  .mg-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  #meteogram-table td, #meteogram-table th { text-align: center; }
+  #meteogram-table th:first-child, #meteogram-table td:first-child { text-align: left; white-space: nowrap; }
+
+  /* Panel analizy membrany - heatmapa rezonansu/defektow rysowana na
+     <canvas> (grid_n x grid_n komorek, trywialnie lekkie dla przegladarki). */
+  #membrane-canvas { border: 1px solid var(--panel-border); border-radius: 4px; image-rendering: pixelated; }
+  .membrane-legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+  .membrane-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+
+<div class="header-row">
+  <h1 style="margin:0;">🌦️ Synoptyk-v3 — membrana pogodowa</h1>
+  <select id="city-select" onchange="onCityChange()"><option>ładowanie miast…</option></select>
+</div>
+<div class="sub" id="city-sub">siatka → interpolacja → membrana → widmo → defekty → rezonans → przekroje 1D.</div>
+<div id="global-error" class="warn-banner" style="display:none;"></div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Odśwież / Zbierz / Analizuj</h2>
+    <div class="empty-note">
+      <strong>↻ Odśwież meteogram</strong> pobiera świeżą prognozę 7-dniową (Open-Meteo) dla wybranego miasta.
+      <strong>💾 Zbierz do historii</strong> dopisuje dzisiejszy dzień do lokalnego CSV (jedno pobranie/dzień/miasto).
+      <strong>🔬 Analizuj membranę</strong> pobiera siatkę 5×5 punktów wokół miasta, buduje membranę, liczy widmo/gradienty/wirowość i wykrywa defekty + rezonans (Kroki 1–5) — wolniejsze niż reszta, uruchamiane na żądanie.
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+      <button class="action-btn" id="refresh-btn" onclick="loadMeteogram()">↻ Odśwież meteogram</button>
+      <button class="action-btn" id="collect-btn" onclick="collectNow()">💾 Zbierz do historii</button>
+      <button class="action-btn" id="analyze-btn" onclick="analyzeMembrane()">🔬 Analizuj membranę</button>
+    </div>
+    <div id="action-status" class="empty-note" style="margin-top:8px;"></div>
+  </div>
+  <div class="panel" id="status-panel">
+    <h2>Status</h2>
+    <div id="status-body">ładowanie…</div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px;">
+  <h2>Meteogram 7 dni <span id="meteogram-badge"></span></h2>
+  <div id="meteogram-note" class="empty-note">ładowanie…</div>
+  <svg id="meteogram-chart" viewBox="0 0 640 220" role="img" aria-label="Wykres temperatury maksymalnej i minimalnej z naniesionymi słupkami opadu na kolejne dni"></svg>
+  <div class="mg-legend">
+    <span><span class="sw" style="background:#e0745a;"></span>temp. maks. °C</span>
+    <span><span class="sw" style="background:#4fa8d1;"></span>temp. min. °C</span>
+    <span><span class="sw" style="background:var(--precip); opacity:0.55;"></span>opad (mm, skala własna u dołu)</span>
+  </div>
+  <table id="meteogram-table">
+    <thead><tr><th>dzień</th><th>opad (mm)</th><th>ciśnienie (hPa)</th><th>wiatr (km/h)</th><th>kier.</th><th>t. maks (°C)</th><th>t. min (°C)</th></tr></thead>
+    <tbody id="meteogram-body"></tbody>
+  </table>
+</div>
+
+<div class="panel" style="margin-bottom:20px;">
+  <h2>Analiza membrany — widmo / defekty / rezonans (Kroki 1–5)</h2>
+  <div id="membrane-note" class="empty-note">Kliknij „🔬 Analizuj membranę”, żeby pobrać siatkę punktów wokół miasta i policzyć membranę.</div>
+  <div id="membrane-body" style="display:none;">
+    <div class="grid">
+      <div>
+        <div class="stat"><span class="k">Punktów wejściowych (siatka)</span><span class="v" id="mb-n-source"></span></div>
+        <div class="stat"><span class="k">Rozdzielczość membrany</span><span class="v" id="mb-grid-n"></span></div>
+        <div class="stat"><span class="k">Widmo T — energia wysokoczęst.</span><span class="v" id="mb-spec-t"></span></div>
+        <div class="stat"><span class="k">Widmo P — energia wysokoczęst.</span><span class="v" id="mb-spec-p"></span></div>
+      </div>
+      <table>
+        <thead><tr><th>kanał defektu</th><th>próg</th><th>liczba komórek</th></tr></thead>
+        <tbody id="mb-defects-body"></tbody>
+      </table>
+    </div>
+    <h2 style="margin-top:16px;">Mapa koincydencji (rezonans membrany)</h2>
+    <div id="mb-resonance-note" class="empty-note"></div>
+    <canvas id="membrane-canvas" width="200" height="200"></canvas>
+    <div class="membrane-legend">
+      <span><span class="sw" style="background:#0b0f14; border:1px solid #1f2b3a;"></span>0 kanałów</span>
+      <span><span class="sw" style="background:#2b6f68;"></span>1–2 kanały</span>
+      <span><span class="sw" style="background:#4fd1c5;"></span>≥3 kanały (rezonans)</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Historia zebranych dni (CSV lokalny)</h2>
+  <div class="empty-note">Każdy wiersz to jeden dzień prognozy dopisany przyciskiem „💾 Zbierz do historii” — widoczność, że kolektor faktycznie coś zapisuje.</div>
+  <table id="history-table"><thead><tr><th>issue_date</th><th>target</th><th>lead</th><th>opad mm</th><th>t.max °C</th><th>wiatr km/h</th><th>kier.</th><th>ciśn. hPa</th></tr></thead><tbody></tbody></table>
+</div>
+
+<footer>
+  Synoptyk-v3 · appka lokalna (FastAPI) · endpointy: /api/cities, /api/meteogram, /api/collect, /api/analyze, /api/history ·
+  Krok 1-5 (siatka→membrana→widmo→defekty→rezonans) to heurystyka NIEZWALIDOWANA na realnych danych - patrz README.md#ograniczenia.
+</footer>
+
+<script>
+let currentCity = null;
+let citiesData = null;
+
+async function getJSON(url, opts) {
+  const r = await fetch(url, { cache: "no-store", ...opts });
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { const j = await r.json(); detail = j.detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+// Ta sama konwencja co SYNOPTYK-ARCTIC/Synoptyk-v2.0: dir_from = SKAD
+// wieje wiatr, strzalka pokazuje DOKAD.
+const WIND_ARROWS = ["↑", "↗", "→", "↘", "↓", "↙", "←", "↖"];
+function windArrow(degFrom) {
+  if (degFrom === null || degFrom === undefined || degFrom === "" || Number.isNaN(Number(degFrom))) return "—";
+  const degTo = (Number(degFrom) + 180) % 360;
+  const idx = Math.floor(((degTo + 22.5) % 360) / 45);
+  return WIND_ARROWS[idx];
+}
+
+function fmtDay(dateStr) {
+  const p = String(dateStr).split("-");
+  return p.length === 3 ? `${p[2]}.${p[1]}` : dateStr;
+}
+
+const _sectionErrors = {};
+function _showGlobalError() {
+  const el = document.getElementById("global-error");
+  const msgs = Object.entries(_sectionErrors).map(([label, msg]) => `${label}: ${msg}`);
+  if (msgs.length === 0) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.textContent = "⚠️ " + msgs.join(" · ");
+}
+async function loadSection(url, renderFn, label) {
+  try {
+    const data = await getJSON(url);
+    renderFn(data);
+    delete _sectionErrors[label];
+  } catch (e) {
+    console.error(`[Synoptyk-v3] Blad w sekcji "${label}":`, e);
+    _sectionErrors[label] = e.message || String(e);
+  }
+  _showGlobalError();
+}
+
+function _withCity(url) {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}city=${encodeURIComponent(currentCity)}`;
+}
+
+async function loadCities() {
+  const sel = document.getElementById("city-select");
+  try {
+    const data = await getJSON("/api/cities");
+    citiesData = data;
+    currentCity = data.default;
+    sel.innerHTML = data.cities.map(c => `<option value="${c.name}">${c.name.replace(/_/g, " ")} (${c.region})</option>`).join("");
+    sel.value = currentCity;
+  } catch (e) {
+    sel.innerHTML = `<option>błąd ładowania listy miast</option>`;
+  }
+}
+
+function renderStatus() {
+  const city = citiesData ? citiesData.cities.find(c => c.name === currentCity) : null;
+  document.getElementById("status-body").innerHTML = `
+    <div class="stat"><span class="k">Wybrane miasto</span><span class="v">${currentCity.replace(/_/g, " ")}</span></div>
+    <div class="stat"><span class="k">Region</span><span class="v">${city ? city.region : "—"}</span></div>
+    <div class="stat"><span class="k">Współrzędne</span><span class="v">${city ? `${city.lat}, ${city.lon}` : "—"}</span></div>
+    <div class="stat"><span class="k">Źródło danych</span><span class="v">Open-Meteo (live)</span></div>
+  `;
+  document.getElementById("city-sub").textContent =
+    `${currentCity.replace(/_/g, " ")} — siatka → interpolacja → membrana → widmo → defekty → rezonans → przekroje 1D.`;
+}
+
+function onCityChange() {
+  currentCity = document.getElementById("city-select").value;
+  renderStatus();
+  loadMeteogram();
+  loadHistory();
+  document.getElementById("membrane-body").style.display = "none";
+  document.getElementById("membrane-note").textContent = "Kliknij „🔬 Analizuj membranę”, żeby przeliczyć dla nowego miasta.";
+}
+
+// ---------- Meteogram (Krok 6: przekroje 1D) ----------
+
+function renderMeteogram(data) {
+  const note = document.getElementById("meteogram-note");
+  const svg = document.getElementById("meteogram-chart");
+  const badge = document.getElementById("meteogram-badge");
+  svg.innerHTML = "";
+  badge.innerHTML = "";
+
+  const days = data.days || [];
+  if (days.length === 0) {
+    note.textContent = "Brak danych prognozy.";
+    return;
+  }
+  note.textContent = `${data.city.replace(/_/g, " ")} — prognoza na ${days.length} ${days.length === 1 ? "dzień" : "dni"} naprzód (Open-Meteo, na żywo).`;
+
+  const precip = data.precip_mm.map(Number);
+  const maxVals = data.temp_max_c.map(Number);
+  const minVals = data.temp_min_c.map(Number);
+  const maxPrecip = Math.max(1, ...precip);
+
+  // Uklad DOKLADNIE jak "Prognoza 7 dni" w SYNOPTYK-ARCTIC
+  // (renderForecastOutlook): band+maxline+minline na skali temperatury -
+  // opad NIE dostaje wlasnej osi Y na wykresie (bylby to trzeci element
+  // wizualny), tylko slupki zakotwiczone u DOLU wykresu na WLASNEJ,
+  // niezaleznej skali wysokosci (maxBarFrac ulamek plotH) - dokladnie ta
+  // proba uzytkownika "slupki opadu naniesione NA wykres min/max", nie
+  // osobny wykres obok.
+  const W = 640, H = 220, padL = 40, padR = 20, padT = 20, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = days.length;
+  const xOf = i => n === 1 ? padL + plotW / 2 : padL + i * (plotW / (n - 1));
+  const yMin = Math.min(...minVals) - 2;
+  const yMax = Math.max(...maxVals) + 2;
+  const yOf = t => padT + (yMax - t) / (yMax - yMin) * plotH;
+
+  const maxBarFrac = 0.4;   // slupek opadu przy maxPrecip zajmuje 40% wysokosci wykresu
+  const barBaseline = padT + plotH;  // dol wykresu (najzimniejszy koniec skali temp.)
+  const barW = n === 1 ? plotW * 0.3 : (plotW / n) * 0.5;
+
+  const maxPts = days.map((d, i) => `${xOf(i).toFixed(1)},${yOf(maxVals[i]).toFixed(1)}`);
+  const minPts = days.map((d, i) => `${xOf(i).toFixed(1)},${yOf(minVals[i]).toFixed(1)}`);
+  const bandPts = maxPts.concat([...minPts].reverse()).join(" ");
+
+  const gridLines = [];
+  for (let g = Math.ceil(yMin / 6) * 6; g <= yMax; g += 6) gridLines.push(g);
+
+  let inner = "";
+  // 1) siatka + slupki opadu NAJPIERW (w tle), zeby linie/punkty temp.
+  //    byly rysowane NA WIERZCHU i pozostaly czytelne.
+  gridLines.forEach(g => {
+    const y = yOf(g);
+    inner += `<line class="mg-gridline" x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}"/>`;
+    inner += `<text class="mg-axislbl" x="4" y="${(y + 4).toFixed(1)}">${g}°</text>`;
+  });
+  days.forEach((d, i) => {
+    const x = xOf(i);
+    const h = (precip[i] / maxPrecip) * (plotH * maxBarFrac);
+    const y0 = barBaseline - Math.max(0, h);
+    inner += `<rect class="mg-bar" x="${(x - barW / 2).toFixed(1)}" y="${y0.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"/>`;
+    if (precip[i] > 0) {
+      inner += `<text class="mg-bar-lbl" x="${x.toFixed(1)}" y="${(y0 - 3).toFixed(1)}">${precip[i].toFixed(1)}mm</text>`;
+    }
+  });
+  // 2) band + linie max/min + punkty + etykiety (ten sam wzor co arctic).
+  inner += `<polygon class="mg-band" points="${bandPts}"/>`;
+  inner += `<polyline class="mg-maxline" points="${maxPts.join(" ")}"/>`;
+  inner += `<polyline class="mg-minline" points="${minPts.join(" ")}"/>`;
+  days.forEach((d, i) => {
+    const x = xOf(i);
+    const yMaxPt = yOf(maxVals[i]);
+    const yMinPt = yOf(minVals[i]);
+    inner += `<circle class="mg-pt max" cx="${x.toFixed(1)}" cy="${yMaxPt.toFixed(1)}" r="3.5"/>`;
+    inner += `<circle class="mg-pt min" cx="${x.toFixed(1)}" cy="${yMinPt.toFixed(1)}" r="3.5"/>`;
+    inner += `<text class="mg-lbl max" x="${x.toFixed(1)}" y="${(yMaxPt - 8).toFixed(1)}">${maxVals[i].toFixed(1)}</text>`;
+    inner += `<text class="mg-lbl min" x="${x.toFixed(1)}" y="${(yMinPt + 14).toFixed(1)}">${minVals[i].toFixed(1)}</text>`;
+    inner += `<text class="mg-daylbl" x="${x.toFixed(1)}" y="${H - 8}">${fmtDay(d)}</text>`;
+  });
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = inner;
+
+  // Tabela danych pogodowych POD wykresem: JEDEN WIERSZ NA DZIEN (ten sam
+  // uklad co tabela "Prognoza 7 dni" w SYNOPTYK-ARCTIC), z kolumnami
+  // opad/cisnienie/wiatr+kierunek/temp maks/temp min - komplet parametrow
+  // z tego samego zrodla danych, co wykres powyzej.
+  const body = document.getElementById("meteogram-body");
+  body.innerHTML = "";
+  days.forEach((d, i) => {
+    const arrow = windArrow(data.wind_dir_deg[i]);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${fmtDay(d)}</td>
+      <td>${Number(precip[i]).toFixed(1)}</td>
+      <td>${Number(data.pressure_hpa[i]).toFixed(0)}</td>
+      <td>${Number(data.wind_speed_kmh[i]).toFixed(0)}</td>
+      <td class="wind-arrow" title="${data.wind_dir_deg[i]}°">${arrow}</td>
+      <td>${Number(maxVals[i]).toFixed(1)}</td>
+      <td>${Number(minVals[i]).toFixed(1)}</td>
+    `;
+    body.appendChild(tr);
+  });
+
+  // Odznaka najwiekszego skoku opadu dzien-do-dnia (analogicznie do
+  // odznaki "ostra zmiana" w SYNOPTYK-ARCTIC, tylko dla opadu).
+  let maxJump = 0, maxIdx = -1;
+  for (let i = 1; i < precip.length; i++) {
+    const jump = precip[i] - precip[i - 1];
+    if (Math.abs(jump) > Math.abs(maxJump)) { maxJump = jump; maxIdx = i; }
+  }
+  if (maxIdx >= 0 && Math.abs(maxJump) >= 5) {
+    badge.innerHTML = `<span class="badge" style="background:var(--warn-bg); border:1px solid var(--warn-border); color:var(--warn-text);">⚠️ skok opadu ${maxJump > 0 ? "+" : ""}${maxJump.toFixed(1)}mm do ${fmtDay(days[maxIdx])}</span>`;
+  }
+}
+
+async function loadMeteogram() {
+  await loadSection(_withCity("/api/meteogram"), renderMeteogram, "Meteogram");
+}
+
+// ---------- Analiza membrany (Kroki 1-5) ----------
+
+function _resonanceColor(count, isRes) {
+  if (isRes) return "#4fd1c5";       // >= k kanalow (rezonans)
+  if (count >= 1) return "#2b6f68";  // 1..k-1 kanalow
+  return "#0b0f14";                   // 0 kanalow
+}
+
+function renderMembraneCanvas(data) {
+  const canvas = document.getElementById("membrane-canvas");
+  const n = data.grid_n_membrane;
+  const cell = Math.max(2, Math.floor(240 / n));
+  canvas.width = n * cell;
+  canvas.height = n * cell;
+  const ctx = canvas.getContext("2d");
+  const coincidence = data.resonance.coincidence_count;
+  const isRes = data.resonance.mask;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      ctx.fillStyle = _resonanceColor(coincidence[i][j], isRes[i][j] === 1);
+      ctx.fillRect(j * cell, i * cell, cell, cell);
+    }
+  }
+}
+
+function renderMembraneAnalysis(data) {
+  document.getElementById("membrane-note").style.display = "none";
+  document.getElementById("membrane-body").style.display = "block";
+  document.getElementById("mb-n-source").textContent = data.n_source_points;
+  document.getElementById("mb-grid-n").textContent = `${data.grid_n_membrane} × ${data.grid_n_membrane}`;
+  document.getElementById("mb-spec-t").textContent = (data.spectrum.temperature.high_freq_fraction * 100).toFixed(1) + "%";
+  document.getElementById("mb-spec-p").textContent = (data.spectrum.pressure.high_freq_fraction * 100).toFixed(1) + "%";
+
+  const tbody = document.getElementById("mb-defects-body");
+  tbody.innerHTML = "";
+  const labels = { gradient_T: "gradient T (fronty temp.)", gradient_P: "gradient P (fronty ciśn.)", wirowosc: "wirowość (rotacja wiatru)", opad: "gradient opadu (krawędź strefy)" };
+  Object.entries(data.defects).forEach(([key, d]) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${labels[key] ?? key}</td><td>${d.threshold}</td><td>${d.n}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("mb-resonance-note").textContent =
+    `k=${data.resonance.k} (potrzebne ≥${data.resonance.k} z 4 kanałów naraz w tej samej komórce) — ${data.resonance.n_resonance_cells} komórek zaflagowanych jako rezonansowe.`;
+  renderMembraneCanvas(data);
+}
+
+async function analyzeMembrane() {
+  const btn = document.getElementById("analyze-btn");
+  const status = document.getElementById("action-status");
+  btn.disabled = true;
+  status.textContent = "⏳ Pobieranie siatki 5×5 wokół miasta i liczenie membrany (może potrwać kilka-kilkanaście sekund)...";
+  try {
+    const data = await getJSON(_withCity("/api/analyze"), { method: "POST" });
+    renderMembraneAnalysis(data);
+    status.textContent = `✅ Membrana policzona dla ${data.city.replace(/_/g, " ")}.`;
+  } catch (e) {
+    status.textContent = "⚠️ Błąd analizy membrany: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Historia CSV ----------
+
+function renderHistory(data) {
+  const tbody = document.querySelector("#history-table tbody");
+  tbody.innerHTML = "";
+  if (!data.rows || data.rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">brak zebranych dni jeszcze — kliknij „💾 Zbierz do historii”</td></tr>`;
+    return;
+  }
+  data.rows.forEach(row => {
+    const arrow = windArrow(row.wind_dir_deg);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${row.issue_date}</td><td>${row.target_date}</td><td>${row.lead_days}</td><td>${row.precip_mm}</td><td>${row.temp_max_c}</td><td>${row.wind_speed_kmh}</td><td class="wind-arrow" title="${row.wind_dir_deg}°">${arrow}</td><td>${row.pressure_hpa}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadHistory() {
+  await loadSection(_withCity("/api/history"), renderHistory, "Historia");
+}
+
+async function collectNow() {
+  const btn = document.getElementById("collect-btn");
+  const status = document.getElementById("action-status");
+  btn.disabled = true;
+  status.textContent = "⏳ Łączenie z Open-Meteo...";
+  try {
+    const data = await getJSON(_withCity("/api/collect"), { method: "POST" });
+    status.textContent = data.skipped
+      ? `ℹ️ Dzisiejszy dzień dla ${data.city.replace(/_/g, " ")} już zebrany wcześniej.`
+      : `✅ Dopisano ${data.n_added} wierszy dla ${data.city.replace(/_/g, " ")}.`;
+    await loadHistory();
+  } catch (e) {
+    status.textContent = "⚠️ Błąd zbierania danych: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function init() {
+  await loadCities();
+  renderStatus();
+  await Promise.all([loadMeteogram(), loadHistory()]);
+}
+init();
+</script>
+</body>
+</html>
