@@ -91,3 +91,67 @@ def test_history_endpoint_empty_when_no_csv(monkeypatch, tmp_path):
     r = client.get("/api/history?city=Lublin")
     assert r.status_code == 200
     assert r.json()["rows"] == []
+
+
+FAKE_ARCHIVE = {
+    "days": ["2026-08-28", "2026-08-29"],
+    "precip_mm": [0.0, 5.2],
+    "temp_max_c": [23.8, 21.9],
+    "temp_min_c": [13.0, 15.7],
+    "wind_speed_kmh": [18.5, 16.0],
+    "wind_dir_deg": [131, 206],
+    "pressure_hpa": [1006.2, 999.7],
+}
+
+
+def test_collect_archive_endpoint(monkeypatch, tmp_path):
+    import run_collect as run_collect_mod
+    monkeypatch.setattr(run_collect_mod, "fetch_archive", lambda lat, lon, past_days=10: dict(FAKE_ARCHIVE))
+    monkeypatch.setattr("webapp.app.DEFAULT_CSV_PATH", tmp_path / "hist.csv")
+    monkeypatch.setattr(run_collect_mod, "DEFAULT_CSV_PATH", tmp_path / "hist.csv")
+    r = client.post("/api/collect_archive?city=Gdansk")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["city"] == "Gdansk"
+    assert data["n_added"] == 2
+
+
+def test_bias_endpoint_insufficient_data_when_no_history(monkeypatch, tmp_path):
+    monkeypatch.setattr("webapp.app.DEFAULT_CSV_PATH", tmp_path / "does_not_exist.csv")
+    r = client.get("/api/bias?city=Warszawa")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "insufficient_data"
+    assert data["by_lead"] == {}
+
+
+def test_bias_endpoint_ok_with_enough_paired_history(monkeypatch, tmp_path):
+    import csv as _csv
+    csv_path = tmp_path / "hist.csv"
+    fields = [
+        "city", "issue_date", "target_date", "lead_days", "source",
+        "precip_mm", "temp_max_c", "temp_min_c",
+        "wind_speed_kmh", "wind_dir_deg", "pressure_hpa",
+    ]
+    rows = []
+    for i in range(6):
+        issue = f"2026-09-{i+1:02d}"
+        target = f"2026-09-{i+2:02d}"
+        rows.append({"city": "Warszawa", "issue_date": issue, "target_date": target, "lead_days": 1,
+                     "source": "prognoza", "precip_mm": "", "temp_max_c": 20.0, "temp_min_c": "",
+                     "wind_speed_kmh": "", "wind_dir_deg": "", "pressure_hpa": ""})
+        rows.append({"city": "Warszawa", "issue_date": target, "target_date": target, "lead_days": 0,
+                     "source": "archiwum_openmeteo", "precip_mm": "", "temp_max_c": 22.0, "temp_min_c": "",
+                     "wind_speed_kmh": "", "wind_dir_deg": "", "pressure_hpa": ""})
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        w = _csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(rows)
+
+    monkeypatch.setattr("webapp.app.DEFAULT_CSV_PATH", csv_path)
+    r = client.get("/api/bias?city=Warszawa")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["status"] == "ok"
+    assert data["by_lead"]["1"]["n"] == 6
+    assert data["by_lead"]["1"]["bias"] == 2.0
