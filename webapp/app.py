@@ -34,6 +34,17 @@ Endpointy:
                             wybranego miasta - widocznosc, ze kolektor
                             dziala, ten sam wzorzec co
                             /api/latest_readings w SYNOPTYK-ARCTIC.
+- POST /api/collect_archive — dopisuje RZECZYWISTA (nie prognozowana)
+                            historie pogody z Open-Meteo Archive API
+                            (run_collect.collect_archive()) - to jest
+                            "rzeczywistosc", wzgledem ktorej /api/bias
+                            liczy trafnosc prognoz z /api/collect.
+- GET  /api/bias         — trafnosc prognozy (bias/MAE per lead_days,
+                            membrane/bias.py::compute_lead_bias) na
+                            realnym CSV, dla wybranego miasta. Jawny
+                            insufficient_data, gdy za malo sparowanych dni
+                            (patrz docstring bias.py) - nigdy fikcyjne
+                            zero.
 """
 from __future__ import annotations
 
@@ -46,9 +57,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from membrane.analyze import run_membrane_analysis, result_to_json
+from membrane.bias import compute_lead_bias
 from membrane.cities import CITIES, DEFAULT_CITY, resolve_city
 from membrane.grid_source import fetch_meteogram
-from run_collect import DEFAULT_CSV_PATH, collect as _collect
+from run_collect import DEFAULT_CSV_PATH, collect as _collect, collect_archive as _collect_archive
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
@@ -105,6 +117,35 @@ def collect_now(city: str | None = None) -> dict:
         return _collect(city=c.name, csv_path=DEFAULT_CSV_PATH)
     except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Blad polaczenia z Open-Meteo: {e}") from e
+
+
+@app.post("/api/collect_archive")
+def collect_archive_now(city: str | None = None) -> dict:
+    """Analogicznie do collect_now() - csv_path PRZEKAZANE JAWNIE, ten sam
+    powod (mutable-default-argument bound at definition time), patrz
+    komentarz w collect_now()."""
+    c = _resolve_or_404(city)
+    try:
+        return _collect_archive(city=c.name, csv_path=DEFAULT_CSV_PATH)
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Blad polaczenia z Open-Meteo (archiwum): {e}") from e
+
+
+@app.get("/api/bias")
+def bias(city: str | None = None, min_samples: int = 5) -> dict:
+    """Trafnosc prognozy (bias/MAE per lead_days) na realnym CSV - patrz
+    membrane/bias.py. Pusty `by_lead` = za malo sparowanych dni dla
+    KAZDEGO lead_days jeszcze (oczekiwane na start, patrz README) - NIE
+    blad, `status` mowi to jawnie zamiast zmuszac front do zgadywania z
+    samej pustki."""
+    c = _resolve_or_404(city)
+    by_lead = compute_lead_bias(str(DEFAULT_CSV_PATH), c.name, min_samples=min_samples)
+    return {
+        "city": c.name,
+        "min_samples": min_samples,
+        "status": "ok" if by_lead else "insufficient_data",
+        "by_lead": by_lead,
+    }
 
 
 @app.get("/api/history")
