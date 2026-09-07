@@ -83,6 +83,46 @@ syntetycznych rekordach z `membrane.grid_source.build_grid_points(n=5)`,
 2026-09-06 — nie uśrednione po wielu przebiegach, więc traktuj jako rząd
 wielkości, nie precyzyjny benchmark.
 
+## Trafność prognozy
+
+Do 2026-09-07 Synoptyk-v3 nie miał ŻADNEGO mechanizmu do sprawdzenia
+trafności prognozy — tylko sam moduł prognozy (`run_collect.py::collect()`,
+Open-Meteo `/v1/forecast`), bez punktu odniesienia w postaci rzeczywistej,
+zarejestrowanej pogody. Domknięte tym samym wzorcem co SYNOPTYK-ARCTIC
+(`fetch.py::fetch_archive` + `bias.py::compute_lead_bias`):
+
+- **`membrane/archive_source.py::fetch_archive()`** — pobiera rzeczywistą
+  (nie prognozowaną) pogodę z Open-Meteo Archive API
+  (`archive-api.open-meteo.com`), kontrakt zweryfikowany NA ŻYWO przez
+  przeglądarkę wewnętrzną 2026-09-07 (Warszawa, 10 dni wstecz) — te same
+  nazwy pól co `/v1/forecast` (w tym `surface_pressure_mean`, wcześniej
+  zweryfikowane tylko dla forecastu, nie archiwum). `exclude_trailing_days=2`
+  odcina ostatnie 1-2 dni (jeszcze niesfinalizowana reanaliza, ten sam
+  problem i to samo rozwiązanie co SYNOPTYK-ARCTIC).
+- **`run_collect.py::collect_archive()`** — dopisuje te dane do TEGO
+  SAMEGO CSV co `collect()`, z nową kolumną `source`
+  (`prognoza`/`archiwum_openmeteo`) — **schemat CSV się zmienił, istniejący
+  `data/meteogram_snapshots.csv` (38 wierszy danych testowych z tej samej
+  sesji, w której powstała membrana) został zresetowany, nie migrowany.**
+- **`membrane/bias.py::compute_lead_bias()`** — bias (rzeczywistość −
+  prognoza) i MAE per `lead_days`, liczone TYLKO gdy ≥5 sparowanych dni
+  (parowanie po `target_date`) — brak wpisu = za mało danych, NIGDY
+  fałszywe zero.
+- **`GET /api/bias`** (webapp) i sekcja **"Trafność prognozy"** na końcu
+  dashboardu — tabela bias/MAE per horyzont, z jawnym komunikatem
+  "za mało danych" zamiast pustej tabeli, gdy `status=insufficient_data`.
+
+**Uczciwe oczekiwanie na start**: przy 1-2 dniach zbierania (stan na
+2026-09-07) `/api/bias` zwróci `insufficient_data` dla każdego miasta —
+dokładnie tak samo jak SYNOPTYK-ARCTIC po swoim pierwszym pobraniu. To
+wymaga kilkudniowego/kilkutygodniowego klikania „💾 Zbierz do historii” +
+„📡 Zbierz rzeczywistość” (albo odpalania obu co dnia), zanim `bias`/`mae`
+zaczną się pojawiać. Do tego czasu jedyne, co można uczciwie powiedzieć o
+trafności Synoptyk-v3, to krzyżowa weryfikacja z niezależnym dostawcą
+(meteoblue) opisana niżej — to sprawdza wiarygodność DANYCH WEJŚCIOWYCH
+(czy Open-Meteo w ogóle zwraca sensowne liczby), nie trafność prognozy
+względem tego, co faktycznie się wydarzyło.
+
 ## Uczciwe ograniczenia
 
 - **Sieć nie została przetestowana z wnętrza tej appki w sesji, w której
@@ -185,26 +225,29 @@ albo (Windows) `run_dashboard.bat`. Wymaga połączenia z internetem
 python -m pytest -q
 ```
 
-50/50 testów przechodzi (interpolacja, widmo, defekty, rezonans,
-grid_source na realnych fixture'ach, run_collect, webapp przez
-TestClient) — wszystkie z kontrolami pozytywnymi i negatywnymi tam, gdzie
-to miało sens (pole liniowe/rotacja sztywna/wirowość zerowa mają znaną
-analitycznie odpowiedź, nie tylko "kod się nie wywala").
+66/66 testów przechodzi (interpolacja, widmo, defekty, rezonans,
+grid_source + archive_source na realnych fixture'ach, run_collect, bias,
+webapp przez TestClient) — wszystkie z kontrolami pozytywnymi i
+negatywnymi tam, gdzie to miało sens (pole liniowe/rotacja sztywna/
+wirowość zerowa mają znaną analitycznie odpowiedź, nie tylko "kod się nie
+wywala").
 
 ## Struktura
 
 ```
 membrane/
-  cities.py        — lista miast/regionów PL
-  grid_source.py    — Krok 1: pobranie siatki z Open-Meteo
-  interpolate.py    — Krok 2: interpolacja do membrany
-  spectrum.py        — Krok 3: FFT/gradient/wirowość
-  defects.py          — Krok 4: detekcja frontów
-  resonance.py        — Krok 5: koincydencja = rezonans membrany
-  analyze.py           — spina Kroki 1-5 w jeden pipeline
-run_collect.py    — Krok 6: kolektor CSV historii (meteogram)
+  cities.py           — lista miast/regionów PL
+  grid_source.py       — Krok 1: pobranie siatki z Open-Meteo
+  interpolate.py       — Krok 2: interpolacja do membrany
+  spectrum.py           — Krok 3: FFT/gradient/wirowość
+  defects.py             — Krok 4: detekcja frontów
+  resonance.py           — Krok 5: koincydencja = rezonans membrany
+  analyze.py              — spina Kroki 1-5 w jeden pipeline
+  archive_source.py       — rzeczywista pogoda (Open-Meteo Archive API), patrz "Trafność prognozy"
+  bias.py                  — bias/MAE per horyzont, patrz "Trafność prognozy"
+run_collect.py    — Krok 6: kolektor CSV historii (meteogram + archiwum)
 webapp/
   app.py             — FastAPI (endpointy /api/*)
   static/index.html  — dashboard (ciemny motyw jak SYNOPTYK-ARCTIC)
-tests/              — 50 testów, patrz wyżej
+tests/              — 66 testów, patrz wyżej
 ```

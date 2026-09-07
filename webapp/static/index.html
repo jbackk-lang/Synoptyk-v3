@@ -103,12 +103,14 @@
     <h2>Odśwież / Zbierz / Analizuj</h2>
     <div class="empty-note">
       <strong>↻ Odśwież meteogram</strong> pobiera świeżą prognozę 7-dniową (Open-Meteo) dla wybranego miasta.
-      <strong>💾 Zbierz do historii</strong> dopisuje dzisiejszy dzień do lokalnego CSV (jedno pobranie/dzień/miasto).
+      <strong>💾 Zbierz do historii</strong> dopisuje dzisiejszą prognozę do lokalnego CSV (jedno pobranie/dzień/miasto).
+      <strong>📡 Zbierz rzeczywistość (archiwum)</strong> dopisuje RZECZYWISTĄ pogodę z ostatnich dni (Open-Meteo Archive API) — to jest "prawda", względem której sekcja "Trafność prognozy" niżej liczy błąd.
       <strong>🔬 Analizuj membranę</strong> pobiera siatkę 5×5 punktów wokół miasta, buduje membranę, liczy widmo/gradienty/wirowość i wykrywa defekty + rezonans (Kroki 1–5) — wolniejsze niż reszta, uruchamiane na żądanie.
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">
       <button class="action-btn" id="refresh-btn" onclick="loadMeteogram()">↻ Odśwież meteogram</button>
       <button class="action-btn" id="collect-btn" onclick="collectNow()">💾 Zbierz do historii</button>
+      <button class="action-btn" id="collect-archive-btn" onclick="collectArchiveNow()">📡 Zbierz rzeczywistość (archiwum)</button>
       <button class="action-btn" id="analyze-btn" onclick="analyzeMembrane()">🔬 Analizuj membranę</button>
     </div>
     <div id="action-status" class="empty-note" style="margin-top:8px;"></div>
@@ -161,14 +163,29 @@
   </div>
 </div>
 
-<div class="panel">
+<div class="panel" style="margin-bottom:20px;">
   <h2>Historia zebranych dni (CSV lokalny)</h2>
-  <div class="empty-note">Każdy wiersz to jeden dzień prognozy dopisany przyciskiem „💾 Zbierz do historii” — widoczność, że kolektor faktycznie coś zapisuje.</div>
-  <table id="history-table"><thead><tr><th>issue_date</th><th>target</th><th>lead</th><th>opad mm</th><th>t.max °C</th><th>wiatr km/h</th><th>kier.</th><th>ciśn. hPa</th></tr></thead><tbody></tbody></table>
+  <div class="empty-note">Każdy wiersz to jeden dzień prognozy („💾 Zbierz do historii”) albo rzeczywistej pogody („📡 Zbierz rzeczywistość”) — kolumna „źródło” rozróżnia je. Widoczność, że kolektor faktycznie coś zapisuje.</div>
+  <table id="history-table"><thead><tr><th>źródło</th><th>issue_date</th><th>target</th><th>lead</th><th>opad mm</th><th>t.max °C</th><th>wiatr km/h</th><th>kier.</th><th>ciśn. hPa</th></tr></thead><tbody></tbody></table>
+</div>
+
+<div class="panel" id="bias-panel">
+  <h2>Trafność prognozy (bias / MAE, per horyzont)</h2>
+  <div class="empty-note">
+    Porównanie prognozy („💾 Zbierz do historii”) z rzeczywistą, zarejestrowaną pogodą tego samego dnia
+    („📡 Zbierz rzeczywistość”, Open-Meteo Archive API) — <strong>bias = rzeczywistość − prognoza</strong>,
+    liczone TYLKO dla horyzontów z wystarczającą liczbą sparowanych dni (domyślnie ≥5). To jest realna
+    trafność temp. maks. tego miasta, nie samo Open-Meteo w ogóle — patrz README.md#trafność-prognozy.
+  </div>
+  <div id="bias-note" class="empty-note">ładowanie…</div>
+  <table id="bias-table" style="display:none;">
+    <thead><tr><th>horyzont (dni)</th><th>bias (°C)</th><th>MAE (°C)</th><th>n par</th></tr></thead>
+    <tbody id="bias-body"></tbody>
+  </table>
 </div>
 
 <footer>
-  Synoptyk-v3 · appka lokalna (FastAPI) · endpointy: /api/cities, /api/meteogram, /api/collect, /api/analyze, /api/history ·
+  Synoptyk-v3 · appka lokalna (FastAPI) · endpointy: /api/cities, /api/meteogram, /api/collect, /api/collect_archive, /api/bias, /api/analyze, /api/history ·
   Krok 1-5 (siatka→membrana→widmo→defekty→rezonans) to heurystyka NIEZWALIDOWANA na realnych danych - patrz README.md#ograniczenia.
 </footer>
 
@@ -256,6 +273,7 @@ function onCityChange() {
   renderStatus();
   loadMeteogram();
   loadHistory();
+  loadBias();
   document.getElementById("membrane-body").style.display = "none";
   document.getElementById("membrane-note").textContent = "Kliknij „🔬 Analizuj membranę”, żeby przeliczyć dla nowego miasta.";
 }
@@ -447,19 +465,68 @@ function renderHistory(data) {
   const tbody = document.querySelector("#history-table tbody");
   tbody.innerHTML = "";
   if (!data.rows || data.rows.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-note">brak zebranych dni jeszcze — kliknij „💾 Zbierz do historii”</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-note">brak zebranych dni jeszcze — kliknij „💾 Zbierz do historii” i/lub „📡 Zbierz rzeczywistość”</td></tr>`;
     return;
   }
   data.rows.forEach(row => {
     const arrow = windArrow(row.wind_dir_deg);
+    const src = row.source === "archiwum_openmeteo" ? "📡 rzeczywistość" : "💾 prognoza";
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${row.issue_date}</td><td>${row.target_date}</td><td>${row.lead_days}</td><td>${row.precip_mm}</td><td>${row.temp_max_c}</td><td>${row.wind_speed_kmh}</td><td class="wind-arrow" title="${row.wind_dir_deg}°">${arrow}</td><td>${row.pressure_hpa}</td>`;
+    tr.innerHTML = `<td>${src}</td><td>${row.issue_date}</td><td>${row.target_date}</td><td>${row.lead_days}</td><td>${row.precip_mm}</td><td>${row.temp_max_c}</td><td>${row.wind_speed_kmh}</td><td class="wind-arrow" title="${row.wind_dir_deg}°">${arrow}</td><td>${row.pressure_hpa}</td>`;
     tbody.appendChild(tr);
   });
 }
 
 async function loadHistory() {
   await loadSection(_withCity("/api/history"), renderHistory, "Historia");
+}
+
+async function collectArchiveNow() {
+  const btn = document.getElementById("collect-archive-btn");
+  const status = document.getElementById("action-status");
+  btn.disabled = true;
+  status.textContent = "⏳ Łączenie z Open-Meteo Archive API...";
+  try {
+    const data = await getJSON(_withCity("/api/collect_archive"), { method: "POST" });
+    status.textContent = data.skipped
+      ? `ℹ️ Dzisiejsze archiwum dla ${data.city.replace(/_/g, " ")} już zebrane wcześniej.`
+      : `✅ Dopisano ${data.n_added} dni rzeczywistej pogody dla ${data.city.replace(/_/g, " ")}.`;
+    await Promise.all([loadHistory(), loadBias()]);
+  } catch (e) {
+    status.textContent = "⚠️ Błąd zbierania archiwum: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Trafność prognozy (bias/MAE) ----------
+
+function renderBias(data) {
+  const note = document.getElementById("bias-note");
+  const table = document.getElementById("bias-table");
+  const tbody = document.getElementById("bias-body");
+  tbody.innerHTML = "";
+
+  const leads = Object.keys(data.by_lead || {});
+  if (data.status !== "ok" || leads.length === 0) {
+    table.style.display = "none";
+    note.style.display = "block";
+    note.textContent = `Za mało sparowanych dni jeszcze dla ${data.city.replace(/_/g, " ")} (potrzeba ≥${data.min_samples} prognoza+rzeczywistość na ten sam dzień, dla każdego horyzontu osobno). Kliknij „💾 Zbierz do historii” i „📡 Zbierz rzeczywistość” kilka dni z rzędu — to naturalny stan na start, nie błąd.`;
+    return;
+  }
+  note.style.display = "none";
+  table.style.display = "table";
+  leads.map(Number).sort((a, b) => a - b).forEach(lead => {
+    const d = data.by_lead[String(lead)] ?? data.by_lead[lead];
+    const tr = document.createElement("tr");
+    const sign = d.bias > 0 ? "+" : "";
+    tr.innerHTML = `<td>${lead}</td><td>${sign}${d.bias.toFixed(2)}</td><td>${d.mae.toFixed(2)}</td><td>${d.n}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadBias() {
+  await loadSection(_withCity("/api/bias"), renderBias, "Trafność");
 }
 
 async function collectNow() {
@@ -483,7 +550,7 @@ async function collectNow() {
 async function init() {
   await loadCities();
   renderStatus();
-  await Promise.all([loadMeteogram(), loadHistory()]);
+  await Promise.all([loadMeteogram(), loadHistory(), loadBias()]);
 }
 init();
 </script>
