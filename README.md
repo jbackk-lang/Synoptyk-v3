@@ -133,19 +133,28 @@ nadrzędnym). To DRUGA realna integracja tego formalizmu (pierwsza —
 finansowa, w `analizator-gieldowy-v3`) i pierwsza z prawdziwymi danymi
 fizycznymi/pogodowymi zamiast czysto syntetycznymi lub finansowymi.
 
-**Mapowanie (zamrożone PRZED policzeniem czegokolwiek na realnych danych —
-pełne uzasadnienie i zastrzeżenia w docstringu `meta_adapter.py`):**
+**Mapowanie V1 -> V2 (pełna historia, uzasadnienie i zastrzeżenia w
+docstringu `meta_adapter.py`) — V1 zamrożone PRZED policzeniem
+czegokolwiek na realnych danych, V2 to WYŁĄCZNIE naprawa przeskalowania
+V1 po zobaczeniu, że V1 nie działa (nie "dostrajanie progów", tylko
+sprowadzenie wejścia do skali, w której inherited progi 0.1/1.0 w ogóle
+mają szansę cokolwiek rozróżnić):**
 
-| MetaState | wzór | jednostka |
-|---|---|---|
-| Λ (struktura) | średnia `high_freq_fraction` widma temperatury i ciśnienia | [0,1] |
-| τ (transformacja) | średni moduł gradientu temperatury po całej membranie | °C/stopień geogr. |
-| ρ (anomalia) | suma liczby komórek-defektów po 4 kanałach (T/P/wirowość/opad) | liczba komórek |
-| J (operator punktowy) | liczba komórek rezonansowych (koincydencja ≥k=3 kanałów) | liczba komórek |
+| MetaState | V1 (porzucone) | V2 (aktualne) | jednostka V2 |
+|---|---|---|---|
+| Λ (struktura) | średnia `high_freq_fraction` T+P | bez zmian | [0,1] |
+| τ (transformacja) | średni gradient T | średni gradient T / próg anomalii T tego dnia | bezwymiarowe, zwykle ≪1 |
+| ρ (anomalia) | suma komórek-defektów (4 kanały) | to samo / (4 × liczba_komórek) | [0,1] |
+| J (operator punktowy) | liczba komórek rezonansowych | to samo / liczba_komórek | [0,1] |
+
+Normalizacje w V2 używają wyłącznie wielkości WEWNĘTRZNYCH per-dzień
+(liczba komórek membrany, własny próg anomalii z `defects.py` z tego
+samego dnia) — żadna nie została dobrana na podstawie tego, jak wyszedł
+`M`-series czy `classify_phase()` na 10-dniowym oknie testowym.
 
 **Kontrole (syntetyczne, `tests/test_meta_adapter.py`):** pozytywna (front
 skokowy → `|M|` większe niż brak zmiany) i negatywna (dwa identyczne
-snapshoty → `|M|=0`, faza `"stabilna"`) — obie przechodzą.
+snapshoty → `|M|=0`, faza `"stabilna"`) — obie przechodzą, dla V1 i V2.
 
 **Demonstracja na PRAWDZIWYCH danych** (Archive API, siatka 3×3 wokół
 Warszawy, 10 kolejnych dni 2026-08-28..2026-09-06, przechwycone przez
@@ -154,35 +163,35 @@ ochłodzenie ok. 08-31→09-01, spadek ciśnienia i wzrost wiatru ok. 09-03/04,
 widoczne w surowych danych: temp. maks. spada z ~26-28°C do ~17-19°C,
 ciśnienie do minimum ~988-998 hPa, wiatr rośnie do ~30-35 km/h):
 
-- Pipeline działa mechanicznie end-to-end na realnych danych (10 dni → 10
-  `MetaState` → 9 kroków `M` → 9 faz), bez NaN/crashy —
-  `test_end_to_end_real_data_runs_without_crashing`.
-- **Uczciwy wynik: klasyfikacja faz jest bezużyteczna przy tym mapowaniu i
-  tych progach.** Wszystkie 9 kroków, bez wyjątku (dni spokojne I dzień
-  realnego frontu), wyszły jako `"krytyczna"` (`|M|` od ~7 do ~143, próg
-  krytyczny to zaledwie 1.0). Przyczyna nazwana wprost w zastrzeżeniu #3
-  `meta_adapter.py`: ρ i J to surowe liczby komórek membrany 41×41=1681,
-  więc nawet mały dzień-do-dnia ruch (dziesiątki komórek) i tak przebija
-  próg 1.0 o dwa rzędy wielkości — Λ i τ (jedyne dwie składowe w
-  sensownej, małej skali) giną w sumie. To jest DOKŁADNIE ostrzeżenie z
-  oryginalnego docstringu `classify_phase()` ("skala Λ/τ/ρ/J zależy
-  całkowicie od tego, co podłączysz") potwierdzone na realnym przykładzie,
-  nie hipotetycznie.
-- **Nie "naprawiono" tego post-hoc** (np. przez przeskalowanie ρ/J do
-  ułamka `/1681` już teraz) — to byłoby dokładnie tym rodzajem
-  dostrajania-po-zobaczeniu-wyniku, przeciw któremu protokół
-  numerologii/formalizmu (skill `timdr-signal-framework`) ostrzega.
-  Przeskalowanie ρ/J do wspólnej skali z Λ/τ (i osobna, świeża
-  rekalibracja progów `classify_phase()` na TAK przeskalowanym `|M|`) to
-  jawnie nazwany, odrębny następny krok — nie zrobiony w tej sesji.
-- Co ten wynik FAKTYCZNIE pokazuje: adapter jest okablowany poprawnie
-  (kontrole syntetyczne to potwierdzają) i formalizm TIMDR-META-DYNAMICS
-  daje się w ogóle podłączyć do prawdziwych, jednostkowych danych
-  pogodowych bez zmiany jego kodu. Nie pokazuje, że formalizm COKOLWIEK
-  wykrywa w sensie synoptycznym — to wymagałoby przeskalowania opisanego
-  wyżej, plus (zgodnie z regułą "jeden strzał to nie kalibracja") wielu
-  niezależnych epizodów frontowych i okresu bez frontu jako kontrolki
-  negatywnej na realnych danych, nie jednego 10-dniowego okna.
+- **V1 (porzucone): klasyfikacja faz była bezużyteczna.** Wszystkie 9
+  kroków, bez wyjątku (dni spokojne I dzień realnego frontu), wyszły jako
+  `"krytyczna"` (`|M|` od ~7 do ~143, próg krytyczny to zaledwie 1.0) —
+  ρ/J to surowe liczby komórek membrany 41×41=1681, więc nawet mały
+  dzień-do-dnia ruch przebijał próg o dwa rzędy wielkości, Λ/τ ginęły w
+  sumie. Dokładnie ostrzeżenie z oryginalnego docstringu
+  `classify_phase()` ("skala Λ/τ/ρ/J zależy całkowicie od tego, co
+  podłączysz"), potwierdzone na realnym przykładzie.
+- **V2 (po naprawie przeskalowania): klasyfikacja ROZRÓŻNIA kroki.**
+  `|M|` teraz w zakresie ~0.07-0.18, rozkład faz na tym samym oknie:
+  3× `"stabilna"`, 6× `"przejściowa"`, 0× `"krytyczna"`
+  (`test_end_to_end_real_data_runs_without_crashing` sprawdza wprost, że
+  `len(set(phases)) > 1` — V1 by tego testu NIE przeszedł). Krok
+  08-30→08-31 (początek realnego ochłodzenia) ma jeden z wyższych `|M|`
+  (0.180) w całym oknie, a najspokojniejszy 5-dniowy odcinek (09-02..09-04)
+  daje 2 z 3 wystąpień `"stabilna"`. **To ciekawa zgodność z fizyczną
+  intuicją, NIE potwierdzony wynik** — jedno 10-dniowe okno bez kontrolki
+  negatywnej (okres definitywnie bez frontu) i bez testu
+  Manna-Whitneya nie odróżnia "formalizm coś wykrywa" od przypadku na
+  n=9 krokach.
+- Co to FAKTYCZNIE pokazuje: (a) adapter jest okablowany poprawnie —
+  potwierdzone kontrolami syntetycznymi w obu wersjach; (b) błąd
+  skalowania w V1 był realny i naprawialny bez naruszania protokołu
+  numerologii (normalizacja per-dzień, ustalona przed uruchomieniem V2 na
+  realnych danych); (c) V2 na jednym realnym oknie DAJE zróżnicowaną,
+  fizycznie niesprzeczną klasyfikację — ale to wciąż nie jest kalibracja.
+  Prawdziwa walidacja wymagałaby wielu niezależnych epizodów frontowych +
+  okresu bez frontu jako kontrolki negatywnej + testu istotności — jawnie
+  nazwany, odrębny, nie zrobiony w tej sesji następny krok.
 
 ## Uczciwe ograniczenia
 

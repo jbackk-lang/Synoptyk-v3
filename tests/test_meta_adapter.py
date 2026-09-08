@@ -63,24 +63,30 @@ def _grid_records(n=7, spacing=0.35, center_lat=52.0, center_lon=21.0, front=Fal
 # ---------------------------------------------------------------------------
 
 def test_mapping_formulas_match_pre_registered_definitions():
+    """V2 (patrz meta_adapter.py docstring) - tau/rho/J znormalizowane."""
     records = _grid_records(n=7, front=True, front_strength=1.0)
     result = analyze_records(records, grid_n_membrane=21)
     state = membrane_result_to_meta_state(result)
 
+    n_cells = float(result.grid_n_membrane) ** 2
     expected_lambda = 0.5 * (
         result.temperature_spectrum.high_freq_fraction + result.pressure_spectrum.high_freq_fraction
     )
-    expected_tau = float(result.gradient_t.mean())
+    expected_tau = float(result.gradient_t.mean()) / result.defects_t.threshold
     expected_rho = float(
         result.defects_t.n_defects + result.defects_p.n_defects
         + result.defects_vort.n_defects + result.defects_precip.n_defects
-    )
-    expected_J = float(result.resonance.n_resonance_cells)
+    ) / (4.0 * n_cells)
+    expected_J = float(result.resonance.n_resonance_cells) / n_cells
 
     assert state.Lambda == expected_lambda
     assert state.tau == expected_tau
     assert state.rho == expected_rho
     assert state.J == expected_J
+    # Wszystkie 4 skladowe teraz w porownywalnej skali (nie tysiace vs [0,1]).
+    assert 0.0 <= state.Lambda <= 1.0
+    assert 0.0 <= state.rho <= 1.0
+    assert 0.0 <= state.J <= 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -278,5 +284,17 @@ def test_end_to_end_real_data_runs_without_crashing():
         assert math.isfinite(s.rho)
         assert math.isfinite(s.J)
         assert 0.0 <= s.Lambda <= 1.0
+        assert 0.0 <= s.rho <= 1.0
+        assert 0.0 <= s.J <= 1.0
 
     assert result.trigger.triggered in (True, False)
+
+    # V2 (normalizacja) powinno przynajmniej ROZROZNIC dni miedzy soba -
+    # NIE jest to asercja "faza X jest poprawna" (progi nadal
+    # nieskalibrowane, patrz zastrzezenie #2 w meta_adapter.py), tylko
+    # sprawdzenie, ze klasyfikacja nie jest STALA przez wszystkie kroki
+    # (co bylo dokladnie problemem V1 - wszystkie 9/9 kroki "krytyczna").
+    assert len(set(result.phases)) > 1, (
+        f"V2 nadal daje jedna, stala faze na wszystkich krokach: {result.phases} - "
+        "normalizacja nie naprawila problemu braku mocy dyskryminujacej."
+    )

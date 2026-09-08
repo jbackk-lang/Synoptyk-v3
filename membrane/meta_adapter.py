@@ -20,77 +20,100 @@ formalizmu daje cokolwiek sensownego, gdy na wejsciu jest PRAWDZIWY
 przebieg synoptyczny (nie synteta).
 
 ===========================================================================
-PRE-REJESTRACJA MAPOWANIA (zamrozone PRZED policzeniem jakiegokolwiek
-realnego M-series lub classify_phase() na prawdziwych danych - patrz
-protokol numerologii/formalizmu w skillu timdr-signal-framework, zasada 1:
-"zdefiniuj dokladny obiekt/wzorzec PRZED dotknieciem realnych danych lub
-zobaczeniem wyniku"):
+WERSJA 1 (2026-09-08, PORZUCONA - zachowana tu dla historii, nie jako
+zywy kod): Lambda=srednia high_freq_fraction T+P [0,1], tau=SUREY sredni
+gradient T [C/stopien], rho=SUROWA suma liczby komorek-defektow (4
+kanaly), J=SUROWA liczba komorek rezonansowych. Zweryfikowana end-to-end
+na syntetycznych kontrolach (obie przeszly) I na 10 dniach prawdziwych
+danych (siatka 3x3 wokol Warszawy, patrz REAL_GRID_RESPONSE w
+tests/test_meta_adapter.py) - REALNY WYNIK: wszystkie 9 krokow, dni
+spokojne I dzien realnego frontu bez wyjatku, wyszly jako "krytyczna"
+(|M| od ~7 do ~143, prog krytyczny=1.0). Przyczyna: rho/J to SUROWE
+liczby komorek membrany 41x41=1681 - nawet maly dzien-do-dnia ruch
+(dziesiatki komorek) przebija prog 1.0 o dwa rzedy wielkosci, Lambda/tau
+(jedyne dwie skladowe w sensownej, malej skali) gina w sumie
+|Lambda|+|tau|+|rho|+|J|. Klasyfikacja faz przy V1 miala ZERO mocy
+dyskryminujacej (nie rozrozniala dni spokojnych od frontu) - dokladnie
+zastrzezenie #3 ponizej, potwierdzone na realnym przykladzie.
+
+WERSJA 2 (2026-09-08, AKTUALNA) - NAPRAWIONO PRZESKALOWANIE, NIE PROGI:
+jedyna zmiana wzgledem V1 to sprowadzenie WSZYSTKICH czterech skladowych
+do porownywalnej, w wiekszosci przypadkow ograniczonej do [0,1] skali,
+zanim wejda do M=d/dt(...) i classify_phase(). Normalizacja jest
+zdefiniowana WYLACZNIE przez wielkosci WEWNETRZNE dla kazdego
+pojedynczego dnia (calkowita liczba komorek membrany, prog anomalii
+danego dnia z defects.py) - NIE przez zadna wartosc podejrzana/dobrana
+po zobaczeniu WYNIKU M-serii czy classify_phase() (ktorych V2 jeszcze
+nie liczyl w momencie wyboru tych wzorow - to jest pre-rejestracja W
+SENSIE PROTOKOLU, nie tylko nazwa). Progi classify_phase() (0.1/1.0)
+ZOSTAWIONE BEZ ZMIAN - to nie jest "dostrajanie progu, zeby wyszlo ladnie",
+tylko naprawienie WEJSCIA do formuly, ktora te progi zaklada byc w skali
+rzedu jednosci (dokladnie tak, jak formalizm TIMDR-META-DYNAMICS byl
+uzywany w analizator-gieldowy-v3, gdzie trm/flow/resonance/wolumen sa
+tez rzedu jednosci-dziesiatek, nie tysiecy):
 
     Lambda (struktura)      = srednia z high_freq_fraction widma
-                              temperatury i cisnienia (obie w [0,1],
-                              WSPOLNA jednostka -> usrednienie sensowne
-                              bez normalizacji). "Ile z energii pola jest
-                              w drobnej skali" = miara STRUKTURY pola w
-                              sensie dosc doslownym (rozdzielczosc
-                              przestrzenna zjawiska).
+                              temperatury i cisnienia. Bez zmian wzgledem
+                              V1 - juz bylo bezwymiarowe [0,1].
 
-    tau (transformacja)     = srednia modulu gradientu temperatury po
-                              calej membranie [C/stopien geogr.]. Modul
-                              gradientu = doslownie tempo zmiany pola w
-                              przestrzeni - najblizszy przestrzenny
-                              odpowiednik "tempa transformacji". Wybrano
-                              SAM gradient temperatury (nie usrednienie
-                              z cisnieniem) celowo - inna jednostki
-                              fizyczne (C/stopien vs hPa/stopien) nie da
-                              sie usrednic bez arbitralnej normalizacji,
-                              a to bylby dokladnie rodzaj ukrytej decyzji,
-                              ktora protokol nakazuje jawnie nazwac, nie
-                              podjac milczaco.
+    tau (transformacja)     = sredni modul gradientu temperatury PODZIELONY
+                              przez prog anomalii tego samego dnia
+                              (defects_t.threshold, mediana+k*MAD z tego
+                              samego pola gradientu - patrz defects.py).
+                              Bezwymiarowe: "ile progow-anomalii-tego-dnia
+                              stanowi przecietny gradient membrany". Prog
+                              jest wielkoscia WEWNETRZNA dla KAZDEGO dnia
+                              z osobna (liczony niezaleznie na kazdym
+                              snapshocie) - nie parametr dobrany na
+                              podstawie calej serii/wyniku koncowego.
+                              Typowo << 1, bo prog=mediana+3.5*MAD z
+                              definicji lezy w ogonie rozkladu gradientu,
+                              wiec SREDNIA calego pola jest z reguly duzo
+                              nizsza niz ten prog.
 
-    rho (anomalia)          = calkowita liczba komorek-defektow zsumowana
-                              po WSZYSTKICH 4 kanalach diagnostycznych
-                              (gradient_T + gradient_P + wirowosc + opad).
-                              Bezposrednia analogia do rho jako "anomalia"
-                              w GIA-TIMDR/SYNOPTYK-ARCTIC (M/S) - tam rho
-                              tez jest licznikiem, nie wartoscia ciagla.
+    rho (anomalia)          = calkowita liczba komorek-defektow (4 kanaly
+                              zsumowane) PODZIELONA przez (4 * liczba_komorek)
+                              - czyli SREDNIA fraction zajetosci defektem
+                              na kanal, w [0,1]. Mianownik 4x liczba_komorek
+                              (nie 1x), bo licznik sumuje po 4 NIEZALEZNYCH
+                              kanalach (jedna komorka moze byc defektem w
+                              wiecej niz jednym kanale rownoczesnie) -
+                              podzielenie tylko przez liczba_komorek
+                              mogloby dac wartosc > 1.
 
-    J (operator punktowy)   = liczba komorek rezonansowych
-                              (coincidence_count >= k, k=3, ta sama
-                              wartosc domyslna co RESONANCE_K w analyze.py
-                              i K w rezonansie sygnalowym M w GIA-TIMDR).
-                              "Punktowy" bo to konkretne, zlokalizowane
-                              komorki koincydencji, nie usrednienie.
+    J (operator punktowy)   = liczba komorek rezonansowych PODZIELONA przez
+                              liczbe_komorek - fraction membrany w
+                              koincydencji >=k=3 kanalow, w [0,1]
+                              (rezonans to JEDNA maska, wiec ten mianownik
+                              NIE potrzebuje czynnika 4).
 
 UCZCIWE ZASTRZEZENIA (musza zostac, nie do "posprzatania" w przyszlej
 sesji):
-  1. To jest JEDNO z mozliwych mapowan, nie jedyne poprawne - dokladnie
-     jak przy mapowaniu financial w analizator-gieldowy-v3 (ktore samo
-     zmienilo sie raz, z Lambda=cena na Lambda=trm, gdy pojawily sie
-     lepsze realne sygnaly). Gdyby ktos policzyl Lambda/tau/rho/J inaczej
-     z tych samych pol membrany, dostalby inne M i inna klasyfikacje faz.
-  2. Progi classify_phase() (0.1/1.0) sa PRZENIESIONE bez zmian z
-     TIMDR-META-DYNAMICS - NIE skalibrowane na rozkladzie |M| dla tego
-     konkretnego mapowania. Wynik "krytyczna"/"przejsciowa"/"stabilna"
-     ponizej NIE jest zwalidowana klasyfikacja - jest to demonstracja, ze
-     kod dziala end-to-end na prawdziwych danych, analogicznie do
-     pojedynczego strzalu z NIEKALIBROWANEJ broni (patrz rozmowa o
-     numerologii w tej samej sesji) - pokazuje, ze mechanizm dziala, NIE
-     ze jest celny/skalibrowany. Kalibracja wymagalaby wielu niezaleznych
-     realnych epizodow frontowych + kontrolki negatywnej (okres bez
-     frontu) + testu Manna-Whitneya - dokladnie to, czego ten modul NIE
-     robi (patrz plan w README.md#Integracja-z-TIMDR-META-DYNAMICS).
-  3. `tau` ma jednostke C/stopien geogr., `Lambda` jest bezwymiarowe
-     [0,1], `rho`/`J` to liczby calkowite komorek - MetaOperatorM.magnitude()
-     sumuje |Lambda|+|tau|+|rho|+|J| bez normalizacji miedzy nimi (dokladnie
-     to samo ostrzezenie co w oryginalnym docstringu classify_phase() -
-     "skala Lambda/tau/rho/J zalezy calkowicie od tego, co podlaczysz jako
-     wejscie"). rho/J (liczby komorek membrany 41x41=1681) DOMINUJA sume
-     nad Lambda (<=1) i tau (typowo <1 C/stopien) - to jest fizyczna
-     konsekwencja wyboru "surowa liczba komorek" dla rho/J, NIE blad -
-     ale oznacza, ze |M| jest w praktyce napedzane niemal wylacznie przez
-     ZMIANE liczby komorek-defektow/rezonansu dzien-do-dnia, nie przez
-     Lambda/tau. Nazwane tu jawnie, zeby nikt w przyszlosci nie zdziwil
-     sie, czemu klasyfikacja faz "ignoruje" Lambda/tau.
+  1. To jest JEDNO z mozliwych mapowan (teraz: jedna z mozliwych
+     NORMALIZACJI), nie jedyne poprawne - dokladnie jak przy mapowaniu
+     financial w analizator-gieldowy-v3 (ktore samo zmienilo sie raz).
+     Inny wybor normalizacji (np. Lambda/rho/J wszystkie /1, tau /2-sigma
+     zamiast /prog) dalby inne liczbowo M i (byc moze) inna klasyfikacje.
+  2. Progi classify_phase() (0.1/1.0) sa NADAL przeniesione bez zmian z
+     TIMDR-META-DYNAMICS - teraz przynajmniej DZIALAJACE NA WLASCIWEJ
+     SKALI WEJSCIA (rzad jednosci, nie tysiace), ale wciaz NIE
+     skalibrowane na rozkladzie |M| dla TEGO KONKRETNEGO mapowania na
+     wielu niezaleznych realnych epizodach. Jeden 10-dniowy real-data run
+     (patrz README.md#Integracja-z-TIMDR-META-DYNAMICS) pokazuje, ze
+     klasyfikacja przy V2 przynajmniej ROZROZNIA dni miedzy soba (rozne
+     fazy w roznych krokach) - to NIE jest dowod, ze konkretne progi 0.1/
+     1.0 sa dobrze dobrane dla tego zjawiska, tylko ze skala wejscia jest
+     juz w rejonie, gdzie te progi moga cokolwiek rozroznic. Prawdziwa
+     kalibracja wymagalaby wielu niezaleznych realnych epizodow frontowych
+     + kontrolki negatywnej (okres bez frontu) + testu Manna-Whitneya -
+     tego ten modul WCIAZ nie robi.
+  3. `tau` po normalizacji jest w praktyce zazwyczaj << 1 (patrz
+     uzasadnienie w definicji tau powyzej) - oznacza to, ze o ile V1 mial
+     odwrotny problem (rho/J dominujace, Lambda/tau ginace), V2 moze miec
+     tau SYSTEMATYCZNIE niedowazone wzgledem Lambda/rho/J (wszystkie trzy
+     typowo rzedu 0.01-0.5). Nazwane tu jawnie, ten sam wzorzec co
+     zastrzezenie #3 z V1 - nie "naprawione i zapomniane", tylko
+     przeniesiona, mniejsza wersja tego samego zjawiska.
 ===========================================================================
 """
 from __future__ import annotations
@@ -144,20 +167,31 @@ class MetaAdapterResult:
 
 def membrane_result_to_meta_state(result: AnalyzeResult) -> MetaState:
     """Mapowanie jednego wyniku analyze_records() -> jeden MetaState.
-    Wzory zamrozone w PRE-REJESTRACJI na gorze pliku - NIE zmieniaj tu
-    bez dopisania nowej wersji zastrzezenia."""
+    Wzory V2 (patrz PRE-REJESTRACJA/WERSJA 2 na gorze pliku) - NIE
+    zmieniaj tu bez dopisania nowej wersji zastrzezenia i wyjasnienia,
+    dlaczego V2 nie wystarcza."""
+    n_cells = float(result.grid_n_membrane) ** 2
+
     Lambda = 0.5 * (
         result.temperature_spectrum.high_freq_fraction
         + result.pressure_spectrum.high_freq_fraction
     )
-    tau = float(result.gradient_t.mean())
-    rho = float(
+
+    # tau: sredni gradient T, znormalizowany do progu anomalii TEGO SAMEGO
+    # dnia (wielkosc wewnetrzna per-snapshot, nie dobrana z wyniku serii).
+    threshold_t = result.defects_t.threshold
+    tau = float(result.gradient_t.mean()) / threshold_t if threshold_t > 0 else 0.0
+
+    n_defects_total = (
         result.defects_t.n_defects
         + result.defects_p.n_defects
         + result.defects_vort.n_defects
         + result.defects_precip.n_defects
     )
-    J = float(result.resonance.n_resonance_cells)
+    rho = float(n_defects_total) / (4.0 * n_cells)
+
+    J = float(result.resonance.n_resonance_cells) / n_cells
+
     return MetaState(Lambda=Lambda, tau=tau, rho=rho, J=J)
 
 
