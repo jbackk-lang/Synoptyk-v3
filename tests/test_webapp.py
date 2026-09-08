@@ -155,3 +155,54 @@ def test_bias_endpoint_ok_with_enough_paired_history(monkeypatch, tmp_path):
     assert data["status"] == "ok"
     assert data["by_lead"]["1"]["n"] == 6
     assert data["by_lead"]["1"]["bias"] == 2.0
+
+
+def _fake_archive_grid_response(points, n_days=4):
+    """Syntetyczny (NIE realny, w przeciwienstwie do REAL_GRID_RESPONSE w
+    tests/test_meta_adapter.py) ksztalt odpowiedzi siatki archiwalnej -
+    wystarczajacy do sprawdzenia OKABLOWANIA /api/meta (fetch_archive_grid
+    -> archive_grid_response_to_daily_records -> build_meta_series_from_
+    daily_records -> JSON), nie do weryfikacji samej nauki (to juz robi
+    test_meta_adapter.py na PRAWDZIWYCH danych)."""
+    dates = [f"2026-09-{i+1:02d}" for i in range(n_days)]
+    out = []
+    for i, p in enumerate(points):
+        out.append({"latitude": p.lat, "longitude": p.lon, "daily": {
+            "time": dates,
+            "temperature_2m_max": [20.0 + i + 0.5 * d for d in range(n_days)],
+            "temperature_2m_min": [10.0 + i for _ in range(n_days)],
+            "precipitation_sum": [0.0 for _ in range(n_days)],
+            "wind_speed_10m_max": [15.0 for _ in range(n_days)],
+            "wind_direction_10m_dominant": [180 for _ in range(n_days)],
+            "surface_pressure_mean": [1010.0 for _ in range(n_days)],
+            "relative_humidity_2m_mean": [70 for _ in range(n_days)],
+        }})
+    return out
+
+
+def test_meta_endpoint(monkeypatch):
+    import webapp.app as app_mod
+    monkeypatch.setattr(
+        app_mod, "fetch_archive_grid",
+        lambda points, past_days=10, exclude_trailing_days=2: _fake_archive_grid_response(points),
+    )
+    r = client.get("/api/meta?city=Warszawa")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["city"] == "Warszawa"
+    assert len(data["dates"]) == 4
+    assert len(data["states"]) == 4
+    assert len(data["phases"]) == 3
+    assert len(data["magnitude"]) == 3
+    assert all(p in ("stabilna", "przejsciowa", "krytyczna") for p in data["phases"])
+    assert "triggered" in data["trigger"]
+
+
+def test_meta_endpoint_unknown_city_404(monkeypatch):
+    import webapp.app as app_mod
+    monkeypatch.setattr(
+        app_mod, "fetch_archive_grid",
+        lambda points, past_days=10, exclude_trailing_days=2: _fake_archive_grid_response(points),
+    )
+    r = client.get("/api/meta?city=Atlantyda")
+    assert r.status_code == 404

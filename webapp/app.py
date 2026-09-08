@@ -57,10 +57,23 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from membrane.analyze import run_membrane_analysis, result_to_json
+from membrane.archive_source import fetch_archive_grid
 from membrane.bias import compute_lead_bias
 from membrane.cities import CITIES, DEFAULT_CITY, resolve_city
-from membrane.grid_source import fetch_meteogram
+from membrane.grid_source import build_grid_points, fetch_meteogram
+from membrane.meta_adapter import archive_grid_response_to_daily_records, build_meta_series_from_daily_records
 from run_collect import DEFAULT_CSV_PATH, collect as _collect, collect_archive as _collect_archive
+from timdr_meta_dynamics import MetaOperatorM
+
+# Siatka mniejsza (3x3) niz domyslna 5x5 z /api/analyze (DEFAULT_GRID_N_SOURCE
+# w analyze.py) - ten endpoint pobiera WIELE dni na punkt w JEDNYM zapytaniu
+# (fetch_archive_grid), wiec 3x3 jest jednoczesnie (a) dokladnie tym, co
+# zostalo naprawde zweryfikowane realnym zapytaniem (REAL_GRID_RESPONSE w
+# tests/test_meta_adapter.py), i (b) bardziej ostrozne obciazeniowo niz
+# 5x5 dla wielodniowego zapytania.
+META_GRID_N_SOURCE = 3
+META_PAST_DAYS = 10
+_meta_operator = MetaOperatorM()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).parent / "static"
@@ -178,6 +191,44 @@ def analyze(city: str | None = None) -> dict:
     payload = result_to_json(result)
     payload["city"] = c.name
     return payload
+
+
+@app.get("/api/meta")
+def meta(city: str | None = None) -> dict:
+    """Meta-dynamika membrany (Lambda/tau/rho/J, membrane/meta_adapter.py)
+    na PRAWDZIWEJ historii pogodowej ostatnich ~10 dni (Archive API, siatka
+    3x3) - patrz META_GRID_N_SOURCE/META_PAST_DAYS wyzej i UCZCIWE
+    ZASTRZEZENIA w naglowku meta_adapter.py (progi classify_phase()
+    PRZENIESIONE, NIE skalibrowane na tym zjawisku - patrz zastrzezenie #2).
+    Wymaga >= 2 dni po odcieciu trailing (patrz exclude_trailing_days w
+    fetch_archive_grid) - przy past_days=10 to nie powinno nigdy nie
+    wystarczyc, ale ValueError z build_meta_series_from_daily_records
+    jest zwracany jako czytelny 422, nie 500, na wszelki wypadek."""
+    c = _resolve_or_404(city)
+    points = build_grid_points(c.lat, c.lon, n=META_GRID_N_SOURCE)
+    try:
+        raw = fetch_archive_grid(points, past_days=META_PAST_DAYS, exclude_trailing_days=2)
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Blad polaczenia z Open-Meteo (archiwum): {e}") from e
+
+    daily_records = archive_grid_response_to_daily_records(raw)
+    dates = raw[0]["daily"]["time"] if raw else []
+    try:
+        result = build_meta_series_from_daily_records(daily_records, dates=dates)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return {
+        "city": c.name,
+        "dates": result.dates,
+        "states": [
+            {"Lambda": s.Lambda, "tau": s.tau, "rho": s.rho, "J": s.J}
+            for s in result.states
+        ],
+        "phases": result.phases,
+        "magnitude": [_meta_operator.magnitude(m) for m in result.M_series],
+        "trigger": result.trigger.as_dict(),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -87,6 +87,20 @@
   #membrane-canvas { border: 1px solid var(--panel-border); border-radius: 4px; image-rendering: pixelated; }
   .membrane-legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
   .membrane-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  /* Meta-dynamika (Lambda/tau/rho/J) - pasek faz, ten sam wzorzec kolorow
+     co inne integracje TIMDR-META-DYNAMICS w tym zestawie repo
+     (Grid-Monitor/Industrial-Predict), przemalowany na palete Synoptyk. */
+  .meta-row { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .meta-row:last-child { margin-bottom: 0; }
+  .meta-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .phase-strip { display: flex; height: 22px; border-radius: 4px; overflow: hidden; border: 1px solid var(--panel-border); }
+  .phase-strip .seg { flex: 1; height: 100%; }
+  .phase-stabilna { background: var(--ok); }
+  .phase-przejsciowa { background: var(--warn-text); }
+  .phase-krytyczna { background: #e0745a; }
+  .meta-trigger-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .meta-trigger-note.hit { color: var(--warn-text); }
 </style>
 </head>
 <body>
@@ -106,12 +120,14 @@
       <strong>💾 Zbierz do historii</strong> dopisuje dzisiejszą prognozę do lokalnego CSV (jedno pobranie/dzień/miasto).
       <strong>📡 Zbierz rzeczywistość (archiwum)</strong> dopisuje RZECZYWISTĄ pogodę z ostatnich dni (Open-Meteo Archive API) — to jest "prawda", względem której sekcja "Trafność prognozy" niżej liczy błąd.
       <strong>🔬 Analizuj membranę</strong> pobiera siatkę 5×5 punktów wokół miasta, buduje membranę, liczy widmo/gradienty/wirowość i wykrywa defekty + rezonans (Kroki 1–5) — wolniejsze niż reszta, uruchamiane na żądanie.
+      <strong>🌀 Meta-dynamika</strong> pobiera siatkę 3×3 punktów × ostatnie ~10 dni z Archive API i liczy fazy Λ/τ/ρ/J (TIMDR-META-DYNAMICS) dzień-po-dniu — również na żądanie (osobne, wielodniowe zapytanie).
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">
       <button class="action-btn" id="refresh-btn" onclick="loadMeteogram()">↻ Odśwież meteogram</button>
       <button class="action-btn" id="collect-btn" onclick="collectNow()">💾 Zbierz do historii</button>
       <button class="action-btn" id="collect-archive-btn" onclick="collectArchiveNow()">📡 Zbierz rzeczywistość (archiwum)</button>
       <button class="action-btn" id="analyze-btn" onclick="analyzeMembrane()">🔬 Analizuj membranę</button>
+      <button class="action-btn" id="meta-btn" onclick="analyzeMeta()">🌀 Meta-dynamika</button>
     </div>
     <div id="action-status" class="empty-note" style="margin-top:8px;"></div>
   </div>
@@ -159,6 +175,25 @@
       <span><span class="sw" style="background:#0b0f14; border:1px solid #1f2b3a;"></span>0 kanałów</span>
       <span><span class="sw" style="background:#2b6f68;"></span>1–2 kanały</span>
       <span><span class="sw" style="background:#4fd1c5;"></span>≥3 kanały (rezonans)</span>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px;">
+  <h2>Meta-dynamika membrany — Λ/τ/ρ/J (TIMDR-META-DYNAMICS)</h2>
+  <div id="meta-note" class="empty-note">Kliknij „🌀 Meta-dynamika”, żeby pobrać ~10 dni prawdziwej historii pogodowej (siatka 3×3) i policzyć fazy dzień-po-dniu.</div>
+  <div id="meta-body" style="display:none;">
+    <div class="meta-row">
+      <div class="meta-label">fazy (dzień→dzień)</div>
+      <div class="phase-strip" id="meta-phase-strip"></div>
+    </div>
+    <div class="meta-trigger-note" id="meta-trigger-note"></div>
+    <table style="margin-top:10px;">
+      <thead><tr><th>dzień</th><th>Λ</th><th>τ</th><th>ρ</th><th>J</th></tr></thead>
+      <tbody id="meta-states-body"></tbody>
+    </table>
+    <div class="empty-note" style="margin-top:8px;">
+      Progi klasyfikacji faz (0.1 przejściowa / 1.0 krytyczna) są przeniesione z TIMDR-META-DYNAMICS bez kalibracji na tym konkretnym zjawisku — patrz zastrzeżenia w <code>membrane/meta_adapter.py</code>. Traktuj to jako demonstrację integracji formalizmu, nie zwalidowaną detekcję frontu.
     </div>
   </div>
 </div>
@@ -454,6 +489,51 @@ async function analyzeMembrane() {
     status.textContent = `✅ Membrana policzona dla ${data.city.replace(/_/g, " ")}.`;
   } catch (e) {
     status.textContent = "⚠️ Błąd analizy membrany: " + (e.message || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Meta-dynamika (Lambda/tau/rho/J) ----------
+
+function renderMeta(data) {
+  document.getElementById("meta-note").style.display = "none";
+  document.getElementById("meta-body").style.display = "block";
+
+  const strip = document.getElementById("meta-phase-strip");
+  strip.innerHTML = data.phases.map(p => `<div class="seg phase-${p}" title="${p}"></div>`).join("")
+    || `<span class="empty-note" style="padding-left:6px;">brak okien</span>`;
+
+  const trig = data.trigger;
+  const noteEl = document.getElementById("meta-trigger-note");
+  if (trig && trig.triggered) {
+    noteEl.classList.add("hit");
+    noteEl.textContent = "⚑ " + trig.message;
+  } else {
+    noteEl.classList.remove("hit");
+    noteEl.textContent = trig ? trig.message : "";
+  }
+
+  const tbody = document.getElementById("meta-states-body");
+  tbody.innerHTML = "";
+  data.states.forEach((s, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${fmtDay(data.dates[i])}</td><td>${s.Lambda.toFixed(3)}</td><td>${s.tau.toFixed(3)}</td><td>${s.rho.toFixed(3)}</td><td>${s.J.toFixed(3)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function analyzeMeta() {
+  const btn = document.getElementById("meta-btn");
+  const status = document.getElementById("action-status");
+  btn.disabled = true;
+  status.textContent = "⏳ Pobieranie ~10 dni historii (siatka 3×3) i liczenie meta-dynamiki...";
+  try {
+    const data = await getJSON(_withCity("/api/meta"));
+    renderMeta(data);
+    status.textContent = `✅ Meta-dynamika policzona dla ${data.city.replace(/_/g, " ")} (${data.dates.length} dni).`;
+  } catch (e) {
+    status.textContent = "⚠️ Błąd meta-dynamiki: " + (e.message || e);
   } finally {
     btn.disabled = false;
   }
