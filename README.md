@@ -123,6 +123,67 @@ trafności Synoptyk-v3, to krzyżowa weryfikacja z niezależnym dostawcą
 (czy Open-Meteo w ogóle zwraca sensowne liczby), nie trafność prognozy
 względem tego, co faktycznie się wydarzyło.
 
+## Integracja z TIMDR-META-DYNAMICS (eksperymentalna)
+
+`membrane/meta_adapter.py` mapuje wynik `analyze_records()` na
+`MetaState(Lambda,tau,rho,J)` z repozytorium-siostry `TIMDR-META-DYNAMICS`
+(ten sam wzorzec sys.path co `analizator-gieldowy-v3/meta_dynamics_module.py`
+— folder-siostra musi leżeć obok `Synoptyk-v3` w tym samym katalogu
+nadrzędnym). To DRUGA realna integracja tego formalizmu (pierwsza —
+finansowa, w `analizator-gieldowy-v3`) i pierwsza z prawdziwymi danymi
+fizycznymi/pogodowymi zamiast czysto syntetycznymi lub finansowymi.
+
+**Mapowanie (zamrożone PRZED policzeniem czegokolwiek na realnych danych —
+pełne uzasadnienie i zastrzeżenia w docstringu `meta_adapter.py`):**
+
+| MetaState | wzór | jednostka |
+|---|---|---|
+| Λ (struktura) | średnia `high_freq_fraction` widma temperatury i ciśnienia | [0,1] |
+| τ (transformacja) | średni moduł gradientu temperatury po całej membranie | °C/stopień geogr. |
+| ρ (anomalia) | suma liczby komórek-defektów po 4 kanałach (T/P/wirowość/opad) | liczba komórek |
+| J (operator punktowy) | liczba komórek rezonansowych (koincydencja ≥k=3 kanałów) | liczba komórek |
+
+**Kontrole (syntetyczne, `tests/test_meta_adapter.py`):** pozytywna (front
+skokowy → `|M|` większe niż brak zmiany) i negatywna (dwa identyczne
+snapshoty → `|M|=0`, faza `"stabilna"`) — obie przechodzą.
+
+**Demonstracja na PRAWDZIWYCH danych** (Archive API, siatka 3×3 wokół
+Warszawy, 10 kolejnych dni 2026-08-28..2026-09-06, przechwycone przez
+przeglądarkę wewnętrzną 2026-09-08 — okno akurat obejmuje realne
+ochłodzenie ok. 08-31→09-01, spadek ciśnienia i wzrost wiatru ok. 09-03/04,
+widoczne w surowych danych: temp. maks. spada z ~26-28°C do ~17-19°C,
+ciśnienie do minimum ~988-998 hPa, wiatr rośnie do ~30-35 km/h):
+
+- Pipeline działa mechanicznie end-to-end na realnych danych (10 dni → 10
+  `MetaState` → 9 kroków `M` → 9 faz), bez NaN/crashy —
+  `test_end_to_end_real_data_runs_without_crashing`.
+- **Uczciwy wynik: klasyfikacja faz jest bezużyteczna przy tym mapowaniu i
+  tych progach.** Wszystkie 9 kroków, bez wyjątku (dni spokojne I dzień
+  realnego frontu), wyszły jako `"krytyczna"` (`|M|` od ~7 do ~143, próg
+  krytyczny to zaledwie 1.0). Przyczyna nazwana wprost w zastrzeżeniu #3
+  `meta_adapter.py`: ρ i J to surowe liczby komórek membrany 41×41=1681,
+  więc nawet mały dzień-do-dnia ruch (dziesiątki komórek) i tak przebija
+  próg 1.0 o dwa rzędy wielkości — Λ i τ (jedyne dwie składowe w
+  sensownej, małej skali) giną w sumie. To jest DOKŁADNIE ostrzeżenie z
+  oryginalnego docstringu `classify_phase()` ("skala Λ/τ/ρ/J zależy
+  całkowicie od tego, co podłączysz") potwierdzone na realnym przykładzie,
+  nie hipotetycznie.
+- **Nie "naprawiono" tego post-hoc** (np. przez przeskalowanie ρ/J do
+  ułamka `/1681` już teraz) — to byłoby dokładnie tym rodzajem
+  dostrajania-po-zobaczeniu-wyniku, przeciw któremu protokół
+  numerologii/formalizmu (skill `timdr-signal-framework`) ostrzega.
+  Przeskalowanie ρ/J do wspólnej skali z Λ/τ (i osobna, świeża
+  rekalibracja progów `classify_phase()` na TAK przeskalowanym `|M|`) to
+  jawnie nazwany, odrębny następny krok — nie zrobiony w tej sesji.
+- Co ten wynik FAKTYCZNIE pokazuje: adapter jest okablowany poprawnie
+  (kontrole syntetyczne to potwierdzają) i formalizm TIMDR-META-DYNAMICS
+  daje się w ogóle podłączyć do prawdziwych, jednostkowych danych
+  pogodowych bez zmiany jego kodu. Nie pokazuje, że formalizm COKOLWIEK
+  wykrywa w sensie synoptycznym — to wymagałoby przeskalowania opisanego
+  wyżej, plus (zgodnie z regułą "jeden strzał to nie kalibracja") wielu
+  niezależnych epizodów frontowych i okresu bez frontu jako kontrolki
+  negatywnej na realnych danych, nie jednego 10-dniowego okna.
+
 ## Uczciwe ograniczenia
 
 - **Sieć nie została przetestowana z wnętrza tej appki w sesji, w której
@@ -225,9 +286,10 @@ albo (Windows) `run_dashboard.bat`. Wymaga połączenia z internetem
 python -m pytest -q
 ```
 
-66/66 testów przechodzi (interpolacja, widmo, defekty, rezonans,
+73/73 testów przechodzi (interpolacja, widmo, defekty, rezonans,
 grid_source + archive_source na realnych fixture'ach, run_collect, bias,
-webapp przez TestClient) — wszystkie z kontrolami pozytywnymi i
+webapp przez TestClient, meta_adapter na syntetycznych kontrolach +
+realnej siatce 3×3/10 dni) — wszystkie z kontrolami pozytywnymi i
 negatywnymi tam, gdzie to miało sens (pole liniowe/rotacja sztywna/
 wirowość zerowa mają znaną analitycznie odpowiedź, nie tylko "kod się nie
 wywala").
@@ -245,9 +307,10 @@ membrane/
   analyze.py              — spina Kroki 1-5 w jeden pipeline
   archive_source.py       — rzeczywista pogoda (Open-Meteo Archive API), patrz "Trafność prognozy"
   bias.py                  — bias/MAE per horyzont, patrz "Trafność prognozy"
+  meta_adapter.py          — adapter do TIMDR-META-DYNAMICS, patrz "Integracja z TIMDR-META-DYNAMICS"
 run_collect.py    — Krok 6: kolektor CSV historii (meteogram + archiwum)
 webapp/
   app.py             — FastAPI (endpointy /api/*)
   static/index.html  — dashboard (ciemny motyw jak SYNOPTYK-ARCTIC)
-tests/              — 66 testów, patrz wyżej
+tests/              — 73 testy, patrz wyżej
 ```
