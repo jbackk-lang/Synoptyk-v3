@@ -8,6 +8,7 @@ import math
 import numpy as np
 import pytest
 
+import membrane.interpolate as interpolate_mod
 from membrane.interpolate import build_membrane, wind_speed_dir_from_uv, wind_to_uv
 
 
@@ -96,3 +97,28 @@ def test_build_membrane_skips_missing_values_per_field():
     membrane = build_membrane(records, grid_n=11)
     assert not np.isnan(membrane.pressure_hpa).any()
     assert not np.isnan(membrane.temperature_c).any()
+
+
+def test_build_membrane_raises_clear_runtime_error_without_scipy(monkeypatch):
+    """Regresja na REALNY blad uzytkownika (2026-09-10, Windows Device
+    Guard blokuje DLL-e scipy przy starcie webapp/app.py) - symuluje
+    brak scipy monkeypatchujac `_HAS_SCIPY`/`griddata` (dokladnie tak,
+    jak wygladalby modul po nieudanym imporcie), i sprawdza, ze
+    `build_membrane()` rzuca CZYTELNY RuntimeError z konkretna
+    wiadomoscia, NIE kryptyczny TypeError/AttributeError z wnetrza
+    scipy ani (gorzej) nie wywala calego importu modulu."""
+    monkeypatch.setattr(interpolate_mod, "_HAS_SCIPY", False)
+    monkeypatch.setattr(interpolate_mod, "griddata", None)
+    records = _synthetic_records()
+    with pytest.raises(RuntimeError, match="scipy"):
+        build_membrane(records, grid_n=11)
+
+
+def test_interpolate_module_importable_without_scipy_available_flag():
+    """Sam import modulu (i wszystkiego co go importuje - spectrum.py,
+    analyze.py, webapp/app.py) NIE MOZE zalezec od tego, czy scipy sie
+    zaimportowalo - `_HAS_SCIPY` musi istniec jako atrybut modulu
+    niezaleznie od wyniku importu (patrz UWAGA O IMPORCIE w naglowku
+    interpolate.py)."""
+    assert hasattr(interpolate_mod, "_HAS_SCIPY")
+    assert hasattr(interpolate_mod, "griddata")

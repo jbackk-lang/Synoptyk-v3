@@ -48,8 +48,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from membrane.interpolate import wind_speed_dir_from_uv
-
 
 @dataclass
 class WindCoherenceResult:
@@ -144,12 +142,27 @@ def wind_direction_coherence(u: np.ndarray, v: np.ndarray) -> WindCoherenceResul
     na gradient PREDKOSCI (nawet przy stalym kierunku), ta funkcja
     mierzy WYLACZNIE zgodnosc KIERUNKU, ignorujac predkosc calkowicie.
 
-    `mean_direction_deg` uzywa `wind_speed_dir_from_uv()` (ta sama
-    konwencja "kierunek SKAD wieje" co reszta modulu interpolate.py) na
-    czesci rzeczywistej/urojonej Z traktowanych jako (u,v) usrednionego
-    wektora jednostkowego - NIE surowego matematycznego np.angle(Z) w
-    ukladzie wschod-polnoc, ktory dalby inna liczbe (kat dopelniajacy) i
-    wprowadzilby DRUGA, niezgodna konwencje kierunku w tym samym pliku."""
+    `mean_direction_deg` uzywa TEJ SAMEJ konwencji "kierunek SKAD wieje"
+    co `wind_speed_dir_from_uv()` w interpolate.py (formula
+    `atan2(-Ureal,-Vreal)` ZDUBLOWANA tutaj CELOWO, nie zaimportowana -
+    patrz nizej) - NIE surowego matematycznego np.angle(Z) w ukladzie
+    wschod-polnoc, ktory dalby inna liczbe (kat dopelniajacy) i
+    wprowadzilby DRUGA, niezgodna konwencje kierunku w tym samym pliku.
+
+    UWAGA O IMPORCIE (2026-09-10, naprawa po realnym bledzie): ta
+    funkcja CELOWO NIE importuje `wind_speed_dir_from_uv` z
+    interpolate.py, mimo ze to 3-linijkowe zdublowanie tej samej formuly
+    - `interpolate.py` importuje `scipy.interpolate.griddata` na
+    poziomie modulu, wiec import stamtad wciagalby scipy w tranzyt do
+    kazdego uzycia `spectrum.py`, NAWET do funkcji ktore scipy w ogole
+    nie potrzebuja (ta funkcja liczy sie czystym numpy). Na maszynie
+    uzytkownika z zablokowanym przez Device Guard scipy (ten sam
+    zdiagnozowany wczesniej problem co w TIMDR-Earthquake-Core) to
+    realnie psulo import CALEGO webapp/app.py przy starcie uvicorn -
+    naprawione tu przez zdublowanie 3 linii matematyki zamiast
+    importu, DOKLADNIE zgodnie z zasada tego ekosystemu "zdubluj mala,
+    stabilna formule zamiast wciagac ciezka/kruchą zaleznosc" (patrz
+    _vendor_* pliki w innych repo tego ekosystemu)."""
     speed = np.hypot(u, v)
     valid = speed > 0
     n_valid = int(valid.sum())
@@ -157,7 +170,8 @@ def wind_direction_coherence(u: np.ndarray, v: np.ndarray) -> WindCoherenceResul
         return WindCoherenceResult(coherence=0.0, mean_direction_deg=0.0, n_valid=0)
     unit = (u[valid] + 1j * v[valid]) / speed[valid]
     Z = np.mean(unit)
-    _, mean_direction_deg = wind_speed_dir_from_uv(float(Z.real), float(Z.imag))
+    # Zdublowane z wind_speed_dir_from_uv() w interpolate.py - patrz UWAGA O IMPORCIE wyzej.
+    mean_direction_deg = float(np.degrees(np.arctan2(-Z.real, -Z.imag)) % 360.0)
     return WindCoherenceResult(
         coherence=float(np.abs(Z)), mean_direction_deg=mean_direction_deg, n_valid=n_valid,
     )

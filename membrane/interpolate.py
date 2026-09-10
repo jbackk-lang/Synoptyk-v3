@@ -12,6 +12,27 @@ rozwiazanie meteorologiczne: rozloz na skladowe kartezjanskie u,v
 (ciagle, bez nieciaglosci), interpoluj KAZDA oddzielnie, dopiero na
 gotowej membranie policz z powrotem predkosc/kierunek jesli potrzebne
 (patrz wind_speed_dir_from_uv).
+
+BEZPIECZENSTWO IMPORTU SCIPY (2026-09-10, naprawa po realnym bledzie
+uzytkownika): `scipy.interpolate.griddata` jest JEDYNYM sposobem 2D
+interpolacji uzywanym w tym module (brak sensownego czysto-numpy
+fallbacku dla cubic/linear/nearest na nieregularnej siatce punktow -
+w przeciwienstwie do np. mann_whitney_test w TIMDR-Math-Formalism,
+ktory MA taki fallback), wiec ta funkcjonalnosc NIE dziala bez scipy -
+ale import scipy byl wczesniej NA SZTYWNO na poziomie modulu, co
+oznaczalo, ze CALY webapp/app.py (a wiec i endpointy w ogole
+nieuzywajace interpolacji, np. /api/cities, /api/meteogram, /api/bias)
+odmawial startu na maszynie, gdzie sam IMPORT scipy jest zablokowany
+(Windows Device Guard - dokladnie ten sam, juz wczesniej
+zdiagnozowany problem co w TIMDR-Earthquake-Core/precursor_validation.py,
+patrz HISTORIA_I_TESTY.md tamtego repo). Naprawione owinieciem importu w
+try/except (ten sam wzorzec co `_HAS_SCIPY` w
+TIMDR-Math-Formalism/timdr_formalism/pipeline.py) - teraz caly modul
+(i wszystko co go importuje, w tym spectrum.py/analyze.py/webapp/app.py)
+da sie zaimportowac bez scipy; dopiero WYWOLANIE `build_membrane()`
+(jedyna funkcja faktycznie potrzebujaca interpolacji) rzuca czytelny
+`RuntimeError`, nie `ImportError` gdzies w nieoczywistym miejscu przy
+starcie serwera.
 """
 from __future__ import annotations
 
@@ -19,7 +40,13 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.interpolate import griddata
+
+try:
+    from scipy.interpolate import griddata
+    _HAS_SCIPY = True
+except Exception:  # pragma: no cover - dokladnie scenariusz Device Guard
+    griddata = None
+    _HAS_SCIPY = False
 
 
 def wind_to_uv(speed: float, dir_from_deg: float) -> tuple[float, float]:
@@ -80,7 +107,21 @@ def _interp_field(lons: np.ndarray, lats: np.ndarray, values: np.ndarray,
     ukladzie punktow wejsciowych, np. wszystkie w jednej linii), i
     ostatecznym fallbackiem na 'nearest' dla komorek WCIAZ NaN po obu
     (typowo tylko skrajne rogi membrany poza wypukla otoczka punktow
-    wejsciowych - ekstrapolacja, ktorej 'cubic'/'linear' celowo nie robia)."""
+    wejsciowych - ekstrapolacja, ktorej 'cubic'/'linear' celowo nie robia).
+
+    Rzuca czytelny RuntimeError, jesli scipy nie jest dostepne (patrz
+    UWAGA O IMPORCIE w naglowku modulu) - zamiast pozwolic na kryptyczny
+    TypeError przy wywolaniu None(...)."""
+    if not _HAS_SCIPY:
+        raise RuntimeError(
+            "Interpolacja membrany wymaga scipy.interpolate.griddata, ktore "
+            "nie zaimportowalo sie w tym srodowisku (patrz UWAGA O IMPORCIE "
+            "w naglowku interpolate.py - typowo Windows Device Guard blokuje "
+            "DLL-e scipy). Endpointy nie wymagajace interpolacji przestrzennej "
+            "(/api/cities, /api/meteogram, /api/collect, /api/collect_archive, "
+            "/api/bias, /api/history, /api/meta) dzialaja normalnie - dotyczy "
+            "to wylacznie /api/analyze."
+        )
     pts = np.column_stack([lons, lats])
     result = griddata(pts, values, (grid_lon, grid_lat), method="cubic")
     if np.isnan(result).all():

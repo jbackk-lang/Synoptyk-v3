@@ -195,6 +195,13 @@ def analyze(city: str | None = None) -> dict:
         # np. za malo punktow / brakujace pola po stronie API - blad
         # danych, nie siecowy, ale rownie czytelny dla uzytkownika jak 502.
         raise HTTPException(status_code=422, detail=str(e)) from e
+    except RuntimeError as e:
+        # scipy niedostepne w tym srodowisku (patrz UWAGA O IMPORCIE w
+        # membrane/interpolate.py - Windows Device Guard) - 503, bo to
+        # srodowiskowe ograniczenie tego wdrozenia, nie blad zadania
+        # ani danych. TYLKO ten endpoint (interpolacja przestrzenna)
+        # jest dotkniety - reszta appki dziala normalnie.
+        raise HTTPException(status_code=503, detail=str(e)) from e
     payload = result_to_json(result)
     payload["city"] = c.name
     return payload
