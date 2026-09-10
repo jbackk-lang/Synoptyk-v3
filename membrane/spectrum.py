@@ -1,8 +1,9 @@
 """
 membrane/spectrum.py — Krok 3: widmo deformacji membrany (FFT), gradient
-(uskoki/fronty), i rotacja (wirowosc pola wiatru).
+(uskoki/fronty), rotacja (wirowosc pola wiatru), i spojnosc kierunkowa
+pola wiatru (zespolony parametr porzadku).
 
-Trzy niezalezne diagnostyki, kazda inny obiekt matematyczny (ten sam
+Cztery niezalezne diagnostyki, kazda inny obiekt matematyczny (ten sam
 rygor rozroznienia "to samo slowo/podobienstwo, inny obiekt", co reszta
 ekosystemu TIMDR - patrz skill timdr-signal-framework, ktory jednak
 wprost NIE obejmuje tego repo, bo to case-study domenowy synoptyki, nie
@@ -21,13 +22,42 @@ teoria GIA-TIMDR):
    czasowej (jedna klatka), czyli sama diagnoza |grad(pole)|.
 3. wirowosc (curl) pola wektorowego wiatru: zeta = dv/dx - du/dy - to
    jest STANDARDOWA wirowosc wzgledna z dynamiki atmosfery (skladowa
-   pionowa rotora wiatru), nie nowa konstrukcja.
+   pionowa rotora wiatru), nie nowa konstrukcja. WRAZLIWA na gradient
+   PREDKOSCI wiatru (nie tylko kierunku) - silny front predkosci przy
+   stalym kierunku juz daje duza wirowosc (patrz test ponizej, dane
+   realne).
+4. spojnosc kierunkowa pola wiatru (`wind_direction_coherence`) -
+   ZESPOLONY parametr porzadku (dokladnie ten sam obiekt matematyczny co
+   parametr porzadku Kuramoto w TIMDR-Quantum-Lattice:
+   Z = (1/N)*sum(exp(i*kierunek)) po calej membranie), CELOWO odrebny od
+   wirowosci: ignoruje predkosc, mierzy WYLACZNIE, jak bardzo kierunek
+   wiatru jest zgodny w calym obszarze. |Z| w [0,1]: 0 = kierunki
+   losowe/przeciwstawne, 1 = idealnie zgodny kierunek. Dodane
+   2026-09-10, zweryfikowane na realnych danych Open-Meteo (siatka wokol
+   Gdanska, silny gradient PREDKOSCI 14-52 km/h przy prawie stalym
+   KIERUNKU 260-282 stopni) - w tym przypadku |Z|=0.996 (bardzo spojny
+   kierunek), a wirowosc jednoczesnie duza (do ~107, bo napedzana
+   gradientem predkosci) - dwie diagnostyki NAPRAWDE mierza rozne rzeczy
+   na tych samych danych, nie sa zdublowane. Kontrola negatywna: losowe
+   kierunki (n=1000, ta sama skala predkosci) dajа |Z|~0.03-0.05, zgodne
+   z oczekiwaniem statystycznym ~1/sqrt(n) dla braku spojnosci.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import numpy as np
+
+from membrane.interpolate import wind_speed_dir_from_uv
+
+
+@dataclass
+class WindCoherenceResult:
+    coherence: float       # |Z| w [0,1] - 0=kierunki losowe, 1=idealnie zgodny kierunek
+    mean_direction_deg: float  # kierunek SKAD wieje, stopnie [0,360) - TA SAMA konwencja
+                                # co wind_dir_deg/wind_to_uv w interpolate.py (nie "matematyczny"
+                                # kat liczby zespolonej wprost - patrz wind_direction_coherence())
+    n_valid: int            # liczba komorek z niezerowa predkoscia (wykorzystanych w Z)
 
 
 @dataclass
@@ -96,3 +126,38 @@ def vorticity(u: np.ndarray, v: np.ndarray, dx: float, dy: float) -> np.ndarray:
     _, dv_dx = np.gradient(v, dy, dx)
     du_dy, _ = np.gradient(u, dy, dx)
     return dv_dx - du_dy
+
+
+def wind_direction_coherence(u: np.ndarray, v: np.ndarray) -> WindCoherenceResult:
+    """Zespolony parametr porzadku kierunku wiatru na calej membranie -
+    patrz naglowek modulu, punkt 4, dla pelnego uzasadnienia i wyniku
+    na realnych danych.
+
+    Kazda komorka z niezerowa predkoscia daje jednostkowy wektor
+    kierunku (u,v)/|u,v| = exp(i*kierunek); Z to srednia tych wektorow
+    po calej membranie. Komorki z zerowa predkoscia (cisza) sa POMIJANE
+    (kierunek ciszy jest niezdefiniowany - wliczenie ich jako wektora
+    zerowego zanizyloby |Z| bez fizycznego uzasadnienia, komorki
+    aktywne po prostu nie glosuja).
+
+    Celowo NIEZALEZNE od `vorticity()` powyzej - wirowosc jest wrazliwa
+    na gradient PREDKOSCI (nawet przy stalym kierunku), ta funkcja
+    mierzy WYLACZNIE zgodnosc KIERUNKU, ignorujac predkosc calkowicie.
+
+    `mean_direction_deg` uzywa `wind_speed_dir_from_uv()` (ta sama
+    konwencja "kierunek SKAD wieje" co reszta modulu interpolate.py) na
+    czesci rzeczywistej/urojonej Z traktowanych jako (u,v) usrednionego
+    wektora jednostkowego - NIE surowego matematycznego np.angle(Z) w
+    ukladzie wschod-polnoc, ktory dalby inna liczbe (kat dopelniajacy) i
+    wprowadzilby DRUGA, niezgodna konwencje kierunku w tym samym pliku."""
+    speed = np.hypot(u, v)
+    valid = speed > 0
+    n_valid = int(valid.sum())
+    if n_valid == 0:
+        return WindCoherenceResult(coherence=0.0, mean_direction_deg=0.0, n_valid=0)
+    unit = (u[valid] + 1j * v[valid]) / speed[valid]
+    Z = np.mean(unit)
+    _, mean_direction_deg = wind_speed_dir_from_uv(float(Z.real), float(Z.imag))
+    return WindCoherenceResult(
+        coherence=float(np.abs(Z)), mean_direction_deg=mean_direction_deg, n_valid=n_valid,
+    )

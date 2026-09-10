@@ -36,6 +36,7 @@ class AnalyzeResult:
     gradient_t: np.ndarray
     gradient_p: np.ndarray
     vorticity: np.ndarray
+    wind_coherence: spectrum_mod.WindCoherenceResult
     defects_t: defects_mod.DefectResult
     defects_p: defects_mod.DefectResult
     defects_vort: defects_mod.DefectResult
@@ -72,6 +73,7 @@ def analyze_records(records: list[dict], grid_n_membrane: int = DEFAULT_GRID_N_M
     grad_p = spectrum_mod.gradient_magnitude(membrane.pressure_hpa, membrane.dx_deg, membrane.dy_deg)
     grad_precip = spectrum_mod.gradient_magnitude(membrane.precip_mm, membrane.dx_deg, membrane.dy_deg)
     vort = spectrum_mod.vorticity(membrane.u_wind_kmh, membrane.v_wind_kmh, membrane.dx_deg, membrane.dy_deg)
+    wind_coh = spectrum_mod.wind_direction_coherence(membrane.u_wind_kmh, membrane.v_wind_kmh)
 
     # Defekt opadu liczony na GRADIENCIE opadu (krawedz strefy opadowej),
     # NIE na samej wartosci opadu - proba progu na wartosci (mediana+k*MAD)
@@ -96,6 +98,7 @@ def analyze_records(records: list[dict], grid_n_membrane: int = DEFAULT_GRID_N_M
         n_source_points=len(records), grid_n_membrane=grid_n_membrane,
         temperature_spectrum=t_spec, pressure_spectrum=p_spec,
         gradient_t=grad_t, gradient_p=grad_p, vorticity=vort,
+        wind_coherence=wind_coh,
         defects_t=defects_t, defects_p=defects_p, defects_vort=defects_vort,
         defects_precip=defects_precip, resonance=res, membrane=membrane,
     )
@@ -133,6 +136,11 @@ def result_to_json(result: AnalyzeResult) -> dict:
                 "power": _grid(result.pressure_spectrum.power, 2),
                 "high_freq_fraction": round(result.pressure_spectrum.high_freq_fraction, 4),
             },
+        },
+        "wind_coherence": {
+            "coherence": round(result.wind_coherence.coherence, 4),
+            "mean_direction_deg": round(result.wind_coherence.mean_direction_deg, 1),
+            "n_valid": result.wind_coherence.n_valid,
         },
         "defects": {
             "gradient_T": {"n": result.defects_t.n_defects, "threshold": round(result.defects_t.threshold, 4), "mask": _bool_grid(result.defects_t.is_defect)},

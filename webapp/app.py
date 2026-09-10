@@ -22,8 +22,11 @@ Endpointy:
                             "zapisz do historii" to dwie rozne rzeczy).
 - POST /api/analyze      — Kroki 1-5 (membrane/analyze.py): pobiera
                             siatke punktow wokol miasta, interpoluje w
-                            membrane, liczy widmo/gradient/wirowosc,
-                            wykrywa defekty i rezonans. Kosztowniejsze niz
+                            membrane, liczy widmo/gradient/wirowosc/
+                            spojnosc kierunkowa wiatru (wind_coherence,
+                            dodane 2026-09-10 - patrz naglowek
+                            membrane/spectrum.py), wykrywa defekty i
+                            rezonans. Kosztowniejsze niz
                             /api/meteogram (N=25 punktow w 1 zapytaniu +
                             cala analiza numeryczna) - stad osobny
                             przycisk "Analizuj membrane", nie
