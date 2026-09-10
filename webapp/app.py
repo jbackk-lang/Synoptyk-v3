@@ -196,11 +196,16 @@ def analyze(city: str | None = None) -> dict:
         # danych, nie siecowy, ale rownie czytelny dla uzytkownika jak 502.
         raise HTTPException(status_code=422, detail=str(e)) from e
     except RuntimeError as e:
-        # scipy niedostepne w tym srodowisku (patrz UWAGA O IMPORCIE w
-        # membrane/interpolate.py - Windows Device Guard) - 503, bo to
-        # srodowiskowe ograniczenie tego wdrozenia, nie blad zadania
-        # ani danych. TYLKO ten endpoint (interpolacja przestrzenna)
-        # jest dotkniety - reszta appki dziala normalnie.
+        # ZABEZPIECZENIE (2026-09-10, druga runda): odkad interpolate.py
+        # ma czysto-numpy fallback (_thin_plate_spline_interp) na brak
+        # scipy (Windows Device Guard), brak scipy juz NIE powinien tu
+        # trafiac - fallback dziala zamiast rzucac. Ten handler zostaje
+        # jako siatka bezpieczenstwa na inne nieoczekiwane bledy
+        # numeryczne (np. skrajnie zdegenerowany uklad wejsciowy) -
+        # 503, bo to ograniczenie tego konkretnego wywolania/srodowiska,
+        # nie blad danych uzytkownika (patrz interpolation_method w
+        # odpowiedzi JSON, zeby odroznic, ktora sciezka faktycznie
+        # policzyla wynik, gdy sie uda).
         raise HTTPException(status_code=503, detail=str(e)) from e
     payload = result_to_json(result)
     payload["city"] = c.name

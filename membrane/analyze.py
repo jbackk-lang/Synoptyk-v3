@@ -118,6 +118,7 @@ def result_to_json(result: AnalyzeResult) -> dict:
     return {
         "n_source_points": result.n_source_points,
         "grid_n_membrane": result.grid_n_membrane,
+        "interpolation_method": result.membrane.interpolation_method,
         "membrane": {
             "lat": _grid(result.membrane.lat_grid, 3),
             "lon": _grid(result.membrane.lon_grid, 3),

@@ -99,19 +99,66 @@ def test_build_membrane_skips_missing_values_per_field():
     assert not np.isnan(membrane.temperature_c).any()
 
 
-def test_build_membrane_raises_clear_runtime_error_without_scipy(monkeypatch):
+def test_build_membrane_uses_numpy_fallback_without_scipy(monkeypatch):
     """Regresja na REALNY blad uzytkownika (2026-09-10, Windows Device
     Guard blokuje DLL-e scipy przy starcie webapp/app.py) - symuluje
     brak scipy monkeypatchujac `_HAS_SCIPY`/`griddata` (dokladnie tak,
-    jak wygladalby modul po nieudanym imporcie), i sprawdza, ze
-    `build_membrane()` rzuca CZYTELNY RuntimeError z konkretna
-    wiadomoscia, NIE kryptyczny TypeError/AttributeError z wnetrza
-    scipy ani (gorzej) nie wywala calego importu modulu."""
+    jak wygladalby modul po nieudanym imporcie). Po DRUGIEJ rundzie
+    naprawy (numpy-only TPS fallback) `build_membrane()` powinno
+    DZIALAC (nie tylko rzucac czytelny blad) i jawnie oznaczyc, ktora
+    metoda faktycznie policzyla wynik."""
     monkeypatch.setattr(interpolate_mod, "_HAS_SCIPY", False)
     monkeypatch.setattr(interpolate_mod, "griddata", None)
     records = _synthetic_records()
-    with pytest.raises(RuntimeError, match="scipy"):
-        build_membrane(records, grid_n=11)
+    membrane = build_membrane(records, grid_n=11)
+    assert membrane.interpolation_method == "numpy_tps_fallback"
+    assert not np.isnan(membrane.temperature_c).any()
+    assert not np.isnan(membrane.pressure_hpa).any()
+
+
+def test_build_membrane_reports_scipy_method_when_available():
+    """Kontrola pozytywna dopelniajaca powyzsza - gdy scipy JEST
+    dostepne (normalny przypadek w tym sandboxie), etykieta powinna to
+    odzwierciedlac, zeby /api/analyze nigdy nie mylilo jednej sciezki z
+    druga w JSON (patrz result_to_json w analyze.py)."""
+    records = _synthetic_records()
+    membrane = build_membrane(records, grid_n=11)
+    assert membrane.interpolation_method == "scipy_griddata_cubic"
+
+
+def test_numpy_tps_fallback_reconstructs_linear_field(monkeypatch):
+    """Ten sam test kontrolny co
+    test_build_membrane_reconstructs_linear_field, ale na fallbacku TPS
+    zamiast scipy 'cubic' - skladnik afiniczny TPS powinien odtworzyc
+    scisle liniowe pole niemal dokladnie w wewnetrznej czesci membrany
+    (patrz docstring _thin_plate_spline_interp dla uzasadnienia)."""
+    monkeypatch.setattr(interpolate_mod, "_HAS_SCIPY", False)
+    monkeypatch.setattr(interpolate_mod, "griddata", None)
+    records = _synthetic_records()
+    membrane = build_membrane(records, grid_n=21)
+    expected_t = 10.0 + 2.0 * (membrane.lat_grid - 52.0) - 3.0 * (membrane.lon_grid - 21.0)
+    inner = slice(3, -3)
+    np.testing.assert_allclose(membrane.temperature_c[inner, inner], expected_t[inner, inner], atol=0.15)
+
+
+def test_numpy_tps_fallback_close_to_scipy_on_same_smooth_data():
+    """Fallback TPS i scipy 'cubic' to INNE algorytmy (patrz UCZCIWE
+    ZASTRZEZENIE w docstring _thin_plate_spline_interp) - ten test nie
+    sprawdza identycznosci, tylko ze na tym samym gladkim polu obie
+    metody daja PODOBNY wynik (rozsadny sanity-check, nie dowod
+    rownowaznosci algorytmow)."""
+    records = _synthetic_records()
+    membrane_scipy = build_membrane(records, grid_n=15)
+    lons = np.array([r["lon"] for r in records], dtype=float)
+    lats = np.array([r["lat"] for r in records], dtype=float)
+    temps = np.array([r["temperature_c"] for r in records], dtype=float)
+    tps_result = interpolate_mod._thin_plate_spline_interp(
+        lons, lats, temps, membrane_scipy.lon_grid, membrane_scipy.lat_grid,
+    )
+    inner = slice(2, -2)
+    np.testing.assert_allclose(
+        tps_result[inner, inner], membrane_scipy.temperature_c[inner, inner], atol=0.5,
+    )
 
 
 def test_interpolate_module_importable_without_scipy_available_flag():

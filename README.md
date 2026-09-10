@@ -279,6 +279,30 @@ ciśnienie do minimum ~988-998 hPa, wiatr rośnie do ~30-35 km/h):
   wejściowych (fallback na `nearest`, patrz `interpolate.py::_interp_field`)
   — środek membrany jest wiarygodny, skrajne rogi mniej.
 
+- **Awaria środowiskowa scipy na Windows (Device Guard) i jej naprawa
+  (2026-09-10, realny błąd użytkownika).** `scipy.interpolate.griddata`
+  był importowany na sztywno na poziomie modułu w `interpolate.py`, co
+  na maszynie z Windows Device Guard blokującym DLL-e scipy powodowało
+  `ImportError` przy samym imporcie — a więc **cały** `webapp/app.py`
+  (wszystkie endpointy, nie tylko `/api/analyze`) odmawiał startu.
+  Naprawiono dwuetapowo: (1) import scipy owinięty w try/except
+  (`_HAS_SCIPY`), więc moduł importuje się zawsze; (2) gdy scipy
+  niedostępne, `_interp_field()` używa czysto-numpy fallbacku
+  (`_thin_plate_spline_interp` — interpolacja radialnymi funkcjami
+  bazowymi typu thin-plate spline, `np.linalg.solve`, zero zależności
+  od scipy) zamiast rzucać błąd. **To NIE jest numeryczny odpowiednik
+  scipy `cubic`** — inny algorytm (globalna RBF vs. lokalna
+  triangulacja Clough-Tocher), dający podobne, ale nie identyczne
+  wyniki na gładkich polach meteorologicznych, i inaczej zachowujący
+  się na ekstrapolacji poza rogami membrany. Dlatego `Membrane` niesie
+  jawne pole `interpolation_method` (`"scipy_griddata_cubic"` albo
+  `"numpy_tps_fallback"`), wystawione też w JSON `/api/analyze` — żeby
+  wynik fallbacku nigdy nie był mylony z wynikiem scipy przy
+  porównywaniu wyników między maszynami/wdrożeniami. Testy:
+  `tests/test_interpolate.py` (fallback odtwarza liniowe pole tak samo
+  jak test kontrolny dla scipy; fallback i scipy dają zbliżone wyniki
+  na tych samych danych — sanity-check, nie dowód równoważności).
+
 ## Uruchomienie
 
 ```

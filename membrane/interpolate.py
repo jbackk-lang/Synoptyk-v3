@@ -14,25 +14,35 @@ gotowej membranie policz z powrotem predkosc/kierunek jesli potrzebne
 (patrz wind_speed_dir_from_uv).
 
 BEZPIECZENSTWO IMPORTU SCIPY (2026-09-10, naprawa po realnym bledzie
-uzytkownika): `scipy.interpolate.griddata` jest JEDYNYM sposobem 2D
-interpolacji uzywanym w tym module (brak sensownego czysto-numpy
-fallbacku dla cubic/linear/nearest na nieregularnej siatce punktow -
-w przeciwienstwie do np. mann_whitney_test w TIMDR-Math-Formalism,
-ktory MA taki fallback), wiec ta funkcjonalnosc NIE dziala bez scipy -
-ale import scipy byl wczesniej NA SZTYWNO na poziomie modulu, co
-oznaczalo, ze CALY webapp/app.py (a wiec i endpointy w ogole
-nieuzywajace interpolacji, np. /api/cities, /api/meteogram, /api/bias)
-odmawial startu na maszynie, gdzie sam IMPORT scipy jest zablokowany
-(Windows Device Guard - dokladnie ten sam, juz wczesniej
-zdiagnozowany problem co w TIMDR-Earthquake-Core/precursor_validation.py,
-patrz HISTORIA_I_TESTY.md tamtego repo). Naprawione owinieciem importu w
-try/except (ten sam wzorzec co `_HAS_SCIPY` w
-TIMDR-Math-Formalism/timdr_formalism/pipeline.py) - teraz caly modul
-(i wszystko co go importuje, w tym spectrum.py/analyze.py/webapp/app.py)
-da sie zaimportowac bez scipy; dopiero WYWOLANIE `build_membrane()`
-(jedyna funkcja faktycznie potrzebujaca interpolacji) rzuca czytelny
-`RuntimeError`, nie `ImportError` gdzies w nieoczywistym miejscu przy
-starcie serwera.
+uzytkownika): `scipy.interpolate.griddata` byl wczesniej JEDYNYM
+sposobem 2D interpolacji w tym module, importowanym NA SZTYWNO na
+poziomie modulu, co oznaczalo, ze CALY webapp/app.py (a wiec i
+endpointy w ogole nieuzywajace interpolacji, np. /api/cities,
+/api/meteogram, /api/bias) odmawial startu na maszynie, gdzie sam
+IMPORT scipy jest zablokowany (Windows Device Guard - dokladnie ten
+sam, juz wczesniej zdiagnozowany problem co w
+TIMDR-Earthquake-Core/precursor_validation.py, patrz HISTORIA_I_TESTY.md
+tamtego repo). Naprawione w dwoch krokach:
+
+1. Import scipy owiniety w try/except (ten sam wzorzec co `_HAS_SCIPY`
+   w TIMDR-Math-Formalism/timdr_formalism/pipeline.py) - caly modul
+   (i wszystko co go importuje, w tym spectrum.py/analyze.py/
+   webapp/app.py) da sie zaimportowac bez scipy.
+2. CZYSTO-NUMPY FALLBACK (2026-09-10, druga runda naprawy - user
+   poprosil o realny dzialajacy fallback, nie tylko czytelny blad):
+   gdy scipy niedostepne, `_interp_field()` uzywa
+   `_thin_plate_spline_interp()` zamiast rzucac RuntimeError - patrz
+   docstring tej funkcji dla pelnego uzasadnienia matematycznego i
+   UCZCIWEGO zastrzezenia, ze to INNY algorytm niz scipy 'cubic'
+   (nie numeryczny odpowiednik, tylko rownowazny CEL: gladka
+   interpolacja scattered data w 2D). `Membrane.interpolation_method`
+   ("scipy_griddata_cubic" | "numpy_tps_fallback") jest jawnie
+   wystawiane w kazdym wyniku (i w JSON API - patrz analyze.py), zeby
+   nikt nie pomylil wyniku fallbacku z wynikiem scipy przy porownaniach
+   pomiedzy maszynami/wdrozeniami - zgodnie z zasada tego ekosystemu
+   "etykietuj metode, nie ukrywaj, ktora sciezka faktycznie policzyla
+   wynik" (patrz skill timdr-signal-framework, dyscyplina
+   post-hoc/etykietowania).
 """
 from __future__ import annotations
 
@@ -95,6 +105,75 @@ class Membrane:
     v_wind_kmh: np.ndarray
     dx_deg: float  # rozstaw siatki w stopniach dlugosci geogr. (do gradientow)
     dy_deg: float  # rozstaw siatki w stopniach szerokosci geogr.
+    interpolation_method: str = "scipy_griddata_cubic"  # albo "numpy_tps_fallback" - patrz UWAGA O IMPORCIE
+
+
+def _thin_plate_spline_interp(lons: np.ndarray, lats: np.ndarray, values: np.ndarray,
+                               grid_lon: np.ndarray, grid_lat: np.ndarray) -> np.ndarray:
+    """Czysto-numpowy fallback interpolacji 2D scattered data, uzywany
+    TYLKO gdy scipy nie jest dostepne (patrz UWAGA O IMPORCIE w naglowku
+    modulu). Implementuje klasyczna interpolacje radialnymi funkcjami
+    bazowymi typu "thin-plate spline" (TPS; Duchon 1977; standardowa,
+    dobrze udokumentowana metoda interpolacji rozproszonych danych 2D,
+    NIE nowa konstrukcja tego projektu) - wymaga tylko
+    `np.linalg.solve`/`lstsq`, zero zaleznosci od scipy.
+
+    Model: f(x,y) = a0 + a1*x + a2*y + sum_i w_i * phi(|P - P_i|),
+    gdzie phi(r) = r^2*log(r) (jadro TPS, phi(0):=0 z ciaglosci), przy
+    warunkach ubocznych sum(w)=0, sum(w*x)=0, sum(w*y)=0 (standardowy
+    uklad TPS - patrz np. Bookstein 1989). Skladnik afiniczny (a0,a1,a2)
+    gwarantuje, ze pola SCISLE liniowe sa odtwarzane dokladnie (do bledu
+    numerycznego) - ta sama wlasciwosc sprawdzana dla scipy 'cubic' w
+    test_build_membrane_reconstructs_linear_field, wiec oba backendy
+    przechodza ten sam test kontrolny.
+
+    UCZCIWE ZASTRZEZENIE: to NIE jest numeryczny odpowiednik
+    scipy.griddata(method='cubic') - inny algorytm (globalna RBF vs.
+    lokalna triangulacja Clough-Tocher). Dla gladkich pol meteorologicznych
+    da PODOBNE, ale nie identyczne wyniki; w przeciwienstwie do
+    griddata('cubic'/'linear') TPS ekstrapoluje analitycznie poza otoczke
+    wypukla punktow wejsciowych zamiast dawac NaN (wiec nie potrzeba tu
+    fallbacku 'nearest' na rogach) - moze to dawac inne (zwykle gladsze,
+    ale przy silnie nieliniowych/szumnych danych czasem mniej stabilne)
+    zachowanie na brzegach membrany. Dlatego kazdy Membrane niesie jawna
+    etykiete `interpolation_method`, zeby wynik fallbacku nigdy nie byl
+    mylony z wynikiem scipy przy porownaniach miedzy wdrozeniami."""
+    n = len(values)
+    px = lons.reshape(-1, 1)
+    py = lats.reshape(-1, 1)
+    dx = px - px.T
+    dy = py - py.T
+    r = np.sqrt(dx ** 2 + dy ** 2)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        K = np.where(r > 0, r ** 2 * np.log(r), 0.0)
+
+    P = np.column_stack([np.ones(n), lons, lats])  # n x 3
+    top = np.hstack([K, P])
+    bottom = np.hstack([P.T, np.zeros((3, 3))])
+    A = np.vstack([top, bottom])
+    b = np.concatenate([values, np.zeros(3)])
+
+    try:
+        coeffs = np.linalg.solve(A, b)
+    except np.linalg.LinAlgError:
+        # Zdegenerowany uklad (np. punkty wspollinowe) - najmniejsze
+        # kwadraty zamiast twardego rozwiazania, zeby nie wywalac
+        # calego /api/analyze na trudnym ukladzie wejsciowym.
+        coeffs, *_ = np.linalg.lstsq(A, b, rcond=None)
+
+    w = coeffs[:n]
+    a0, a1, a2 = coeffs[n], coeffs[n + 1], coeffs[n + 2]
+
+    gx = grid_lon.ravel().reshape(-1, 1)
+    gy = grid_lat.ravel().reshape(-1, 1)
+    gdx = gx - px.T
+    gdy = gy - py.T
+    gr = np.sqrt(gdx ** 2 + gdy ** 2)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        gK = np.where(gr > 0, gr ** 2 * np.log(gr), 0.0)
+
+    result = a0 + a1 * gx.ravel() + a2 * gy.ravel() + gK @ w
+    return result.reshape(grid_lon.shape)
 
 
 def _interp_field(lons: np.ndarray, lats: np.ndarray, values: np.ndarray,
@@ -109,19 +188,12 @@ def _interp_field(lons: np.ndarray, lats: np.ndarray, values: np.ndarray,
     (typowo tylko skrajne rogi membrany poza wypukla otoczka punktow
     wejsciowych - ekstrapolacja, ktorej 'cubic'/'linear' celowo nie robia).
 
-    Rzuca czytelny RuntimeError, jesli scipy nie jest dostepne (patrz
-    UWAGA O IMPORCIE w naglowku modulu) - zamiast pozwolic na kryptyczny
-    TypeError przy wywolaniu None(...)."""
+    Jesli scipy nie jest dostepne (patrz UWAGA O IMPORCIE w naglowku
+    modulu), uzywa `_thin_plate_spline_interp()` - czysto-numpowego
+    fallbacku o INNEJ charakterystyce numerycznej, jawnie oznaczonego w
+    `Membrane.interpolation_method` (patrz build_membrane)."""
     if not _HAS_SCIPY:
-        raise RuntimeError(
-            "Interpolacja membrany wymaga scipy.interpolate.griddata, ktore "
-            "nie zaimportowalo sie w tym srodowisku (patrz UWAGA O IMPORCIE "
-            "w naglowku interpolate.py - typowo Windows Device Guard blokuje "
-            "DLL-e scipy). Endpointy nie wymagajace interpolacji przestrzennej "
-            "(/api/cities, /api/meteogram, /api/collect, /api/collect_archive, "
-            "/api/bias, /api/history, /api/meta) dzialaja normalnie - dotyczy "
-            "to wylacznie /api/analyze."
-        )
+        return _thin_plate_spline_interp(lons, lats, values, grid_lon, grid_lat)
     pts = np.column_stack([lons, lats])
     result = griddata(pts, values, (grid_lon, grid_lat), method="cubic")
     if np.isnan(result).all():
@@ -200,4 +272,5 @@ def build_membrane(records: list[dict], grid_n: int = 41) -> Membrane:
         humidity_pct=humidity_pct, precip_mm=precip_mm,
         u_wind_kmh=u_wind_kmh, v_wind_kmh=v_wind_kmh,
         dx_deg=float(dx_deg), dy_deg=float(dy_deg),
+        interpolation_method="scipy_griddata_cubic" if _HAS_SCIPY else "numpy_tps_fallback",
     )
