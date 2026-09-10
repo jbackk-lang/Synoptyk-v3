@@ -101,7 +101,7 @@ def test_positive_control_front_gives_larger_M_magnitude_than_no_change():
     no_change = build_meta_series_from_daily_records([calm_a, calm_b], grid_n_membrane=21)
     with_front = build_meta_series_from_daily_records([calm_a, front], grid_n_membrane=21)
 
-    from timdr_meta_dynamics import MetaOperatorM
+    from membrane._vendor_timdr_meta_dynamics_core import MetaOperatorM
     op = MetaOperatorM()
     mag_no_change = op.magnitude(no_change.M_series[0])
     mag_with_front = op.magnitude(with_front.M_series[0])
@@ -114,7 +114,7 @@ def test_negative_control_identical_snapshots_give_zero_M_and_stable_phase():
     calm_b = _grid_records(n=7, front=False)
     result = build_meta_series_from_daily_records([calm_a, calm_b], grid_n_membrane=21)
 
-    from timdr_meta_dynamics import MetaOperatorM
+    from membrane._vendor_timdr_meta_dynamics_core import MetaOperatorM
     op = MetaOperatorM()
     assert op.magnitude(result.M_series[0]) == 0.0
     assert result.phases[0] == "stabilna"

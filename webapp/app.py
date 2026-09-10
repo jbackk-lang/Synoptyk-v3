@@ -63,7 +63,11 @@ from membrane.cities import CITIES, DEFAULT_CITY, resolve_city
 from membrane.grid_source import build_grid_points, fetch_meteogram
 from membrane.meta_adapter import archive_grid_response_to_daily_records, build_meta_series_from_daily_records
 from run_collect import DEFAULT_CSV_PATH, collect as _collect, collect_archive as _collect_archive
-from timdr_meta_dynamics import MetaOperatorM
+# ZWENDOROWANE 2026-09-10 - patrz membrane/_vendor_timdr_meta_dynamics_core.py
+# naglowek. Wczesniej dzialalo tylko dzieki efektowi ubocznemu importu
+# membrane.meta_adapter (ktory wstawial TIMDR-META-DYNAMICS do sys.path) -
+# teraz ten modul jest niezalezny, wiec import musi byc jawny i lokalny.
+from membrane._vendor_timdr_meta_dynamics_core import MetaOperatorM
 
 # Siatka mniejsza (3x3) niz domyslna 5x5 z /api/analyze (DEFAULT_GRID_N_SOURCE
 # w analyze.py) - ten endpoint pobiera WIELE dni na punkt w JEDNYM zapytaniu

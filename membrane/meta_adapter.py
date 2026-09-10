@@ -118,38 +118,18 @@ sesji):
 """
 from __future__ import annotations
 
-import os
-import sys
 from dataclasses import dataclass
 from typing import List, Optional
 
 from membrane.analyze import AnalyzeResult, analyze_records
 
-
-def _ensure_timdr_meta_dynamics_on_path() -> None:
-    """Dodaje folder-siostre TIMDR-META-DYNAMICS do sys.path, jesli
-    jeszcze go tam nie ma - identyczny wzorzec co
-    analizator-gieldowy-v3/meta_dynamics_module.py (ten sam ukland
-    Downloads\\a\\<repo> jako rodzenstwo katalogow)."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    sibling = os.path.join(here, "..", "..", "TIMDR-META-DYNAMICS")
-    sibling = os.path.abspath(sibling)
-
-    if not os.path.isdir(sibling):
-        raise ImportError(
-            "meta_adapter wymaga folderu 'TIMDR-META-DYNAMICS' jako "
-            f"siostry repo Synoptyk-v3 (szukano w: {sibling}). Jesli lezy "
-            "gdzie indziej, popraw sciezke w _ensure_timdr_meta_dynamics_on_path()."
-        )
-    if sibling not in sys.path:
-        sys.path.insert(0, sibling)
-
-
-_ensure_timdr_meta_dynamics_on_path()
-
-from timdr_meta_dynamics import MetaState, MetaOperatorM  # noqa: E402  (import po sys.path.insert - celowo)
-from analysis.meta_map import MetaMap  # noqa: E402
-from analysis.meta_trigger import MetaTrigger, MetaTriggerResult  # noqa: E402
+# ZWENDOROWANE 2026-09-10 (patrz naglowek membrane/_vendor_timdr_meta_dynamics_core.py
+# dla pelnego uzasadnienia): wczesniej ten modul ladowal TIMDR-META-DYNAMICS
+# przez sys.path sibling-import z folderu-siostry na dysku. Zamienione na
+# lokalna, zwendorowana kopie, zeby to repo dzialalo samodzielnie po
+# sklonowaniu WYLACZNIE siebie (decyzja na wyrazna prosbe: "repozytoria
+# kodu maja byc niezalezne od siebie"). Zachowanie/matematyka bez zmian.
+from membrane._vendor_timdr_meta_dynamics_core import MetaState, MetaOperatorM, MetaMap, MetaTrigger, MetaTriggerResult
 
 
 RESONANCE_K = 3  # ta sama wartosc co analyze.RESONANCE_K - patrz mapowanie J powyzej
