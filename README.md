@@ -112,16 +112,51 @@ zarejestrowanej pogody. Domknięte tym samym wzorcem co SYNOPTYK-ARCTIC
   dashboardu — tabela bias/MAE per horyzont, z jawnym komunikatem
   "za mało danych" zamiast pustej tabeli, gdy `status=insufficient_data`.
 
-**Uczciwe oczekiwanie na start**: przy 1-2 dniach zbierania (stan na
-2026-09-07) `/api/bias` zwróci `insufficient_data` dla każdego miasta —
-dokładnie tak samo jak SYNOPTYK-ARCTIC po swoim pierwszym pobraniu. To
-wymaga kilkudniowego/kilkutygodniowego klikania „💾 Zbierz do historii” +
-„📡 Zbierz rzeczywistość” (albo odpalania obu co dnia), zanim `bias`/`mae`
-zaczną się pojawiać. Do tego czasu jedyne, co można uczciwie powiedzieć o
-trafności Synoptyk-v3, to krzyżowa weryfikacja z niezależnym dostawcą
-(meteoblue) opisana niżej — to sprawdza wiarygodność DANYCH WEJŚCIOWYCH
-(czy Open-Meteo w ogóle zwraca sensowne liczby), nie trafność prognozy
-względem tego, co faktycznie się wydarzyło.
+**Aktualizacja (2026-09-16): pierwszy realny wynik `compute_lead_bias()`.**
+Po ok. dwóch tygodniach zbierania `data/meteogram_snapshots.csv` ma teraz
+545 wierszy (4 miasta), z czego dla 3 miast wystarczyło sparowanych dni
+(`min_samples=5`, próg niezmieniony od napisania kodu), żeby policzyć
+bias/MAE per `lead_days` na `temp_max_c` (ta sama kolumna i metoda co
+backtest SYNOPTYK-ARCTIC):
+
+| miasto | lead_days | n | bias °C | MAE °C |
+|---|---|---|---|---|
+| Kraków | 0 | 8 | −1.18 | 1.38 |
+| Kraków | 1 | 7 | −1.06 | 1.63 |
+| Kraków | 2 | 6 | −1.08 | 1.48 |
+| Kraków | 3 | 5 | −1.60 | 1.84 |
+| Warszawa | 0 | 7 | −0.56 | 0.67 |
+| Warszawa | 1 | 6 | −0.17 | 0.80 |
+| Warszawa | 2 | 5 | −0.52 | 0.52 |
+| Gdańsk | 0 | 7 | +0.70 | 0.84 |
+| Gdańsk | 1 | 6 | +0.55 | 0.85 |
+| Gdańsk | 2 | 5 | +0.44 | 0.92 |
+| Zakopane | — | — | — | `insufficient_data` (max n=4, poniżej progu 5 na każdym `lead_days`) |
+
+**Uczciwa interpretacja, nie tylko liczby:** to NIE jest odpowiednik
+90-dniowego backtestu SYNOPTYK-ARCTIC — tu n=5–8 na horyzont, jedno,
+krótkie (~2-tygodniowe) okno zbierania z przełomu sierpnia/września 2026,
+nie wieloma niezależnymi sezonami. Kraków systematycznie niedoszacowuje
+(bias ujemny na wszystkich 4 horyzontach, −1.1 do −1.6°C), Gdańsk
+systematycznie przeszacowuje (bias dodatni, +0.4 do +0.7°C), Warszawa jest
+bliżej zera — trzy miasta, trzy różne znaki biasu, na tym samym oknie
+czasowym i tej samej metodzie: albo realna różnica regionalna w tym, jak
+Open-Meteo modeluje te lokalizacje, albo artefakt małej próby i krótkiego
+okna (np. jeden lokalny epizod pogodowy przesuwający cały bias jednego
+miasta) — na n=5-8 nie da się tego rozróżnić, wymagałoby dłuższego
+zbierania i/lub testu istotności (Mann-Whitney, jak w resztcie
+ekosystemu), nie zrobionego tu celowo, żeby nie sugerować pewności,
+której te liczby nie mają. MAE NIE rośnie monotonicznie z `lead_days` tak
+czysto jak w Arctic (Kraków: 1.38→1.63→1.48→1.84, nie gładko rosnące) —
+spójne z małą próbą, nie z nowym efektem fizycznym. Zakopane pozostaje
+`insufficient_data` — górska stacja z mniejszą liczbą sparowanych dni,
+dokładnie tak jak przewiduje mechanizm (brak fałszywego zera).
+
+Do momentu zebrania dłuższej historii, jedyne dodatkowe, co można uczciwie
+powiedzieć o trafności Synoptyk-v3, to krzyżowa weryfikacja z niezależnym
+dostawcą (meteoblue) opisana niżej — to sprawdza wiarygodność DANYCH
+WEJŚCIOWYCH (czy Open-Meteo w ogóle zwraca sensowne liczby), nie trafność
+prognozy względem tego, co faktycznie się wydarzyło.
 
 ## Integracja z TIMDR-META-DYNAMICS (eksperymentalna)
 
